@@ -24,6 +24,9 @@
    that are ready to run but not actually running. */
 static struct list ready_list;
 
+/* Multi-grouped list of ready_list. Grouped by priority. */
+static struct list pri_list[PRI_MAX+1];
+
 /* List of sleeping processes, that is, processes that should be 
 	 checked each tick whether it should be awake or not. */
 struct list sleep_list;
@@ -91,12 +94,18 @@ static tid_t allocate_tid (void);
 void
 thread_init (void) 
 {
+	int i;
+
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
   list_init (&ready_list);
   list_init (&sleep_list);
   list_init (&all_list);
+
+	for (i=PRI_MIN ; i<=PRI_MAX ; i++){
+  	list_init (&pri_list[i]);
+	}
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -243,6 +252,7 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
   list_push_back (&ready_list, &t->elem);
+	list_push_back (&pri_list[t->priority], &t->prielem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -314,6 +324,8 @@ thread_yield (void)
   old_level = intr_disable ();
   if (cur != idle_thread) 
     list_push_back (&ready_list, &cur->elem);
+		list_push_back (&pri_list[cur->priority], &cur->prielem);
+
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -495,10 +507,19 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (list_empty (&ready_list))
-    return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+	int i;
+	struct thread *t;
+	struct list_elem *e;
+
+	for ( i=PRI_MAX; i>=PRI_MIN ; i-- ){
+		if(!list_empty(&pri_list[i])){
+			e = list_pop_front (&pri_list[i]);
+			t = list_entry (e, struct thread, prielem);
+  		list_remove (&t->elem);
+			return t;
+		}
+	}
+	return idle_thread;
 }
 
 /* Completes a thread switch by activating the new thread's page
