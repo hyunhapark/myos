@@ -185,6 +185,7 @@ thread_create (const char *name, int priority,
   struct switch_entry_frame *ef;
   struct switch_threads_frame *sf;
   tid_t tid;
+  enum intr_level old_level;
 
   ASSERT (function != NULL);
 
@@ -196,6 +197,8 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+
+  old_level = intr_disable ();
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -212,14 +215,16 @@ thread_create (const char *name, int priority,
   sf->eip = switch_entry;
   sf->ebp = 0;
 
+  intr_set_level (old_level);
+
   /* Add to run queue. */
   thread_unblock (t);
 
-	//TODO
-	if ( thread_current ()->priority < priority ) {
+	/*
+	if ( thread_current ()->priority < t->priority ) {
 		thread_yield ();
 	}
-
+	//*/
   return tid;
 }
 
@@ -259,6 +264,13 @@ thread_unblock (struct thread *t)
   list_push_back (&ready_list, &t->elem);
 	list_push_back (&pri_list[t->priority], &t->prielem);
   t->status = THREAD_READY;
+
+	//TODO
+	//*
+	if ( thread_current()!=idle_thread && thread_current ()->priority < t->priority ) {
+		thread_yield ();
+	}
+	//*/
   intr_set_level (old_level);
 }
 
@@ -327,9 +339,10 @@ thread_yield (void)
   ASSERT (!intr_context ());
 
   old_level = intr_disable ();
-  if (cur != idle_thread) 
+  if (cur != idle_thread) {
     list_push_back (&ready_list, &cur->elem);
 		list_push_back (&pri_list[cur->priority], &cur->prielem);
+	}
 
   cur->status = THREAD_READY;
   schedule ();
