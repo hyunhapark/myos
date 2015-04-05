@@ -90,11 +90,17 @@ struct thread
     int priority;                       /* Priority. */
     struct list_elem allelem;           /* List element for all threads list. */
     struct list_elem sleepelem;         /* List element for sleeping threads list. */
-		int64_t awake_tick;                 /* The time when sleeping thread to awake. */
     struct list_elem prielem;           /* List element for all threads list. */
+
+		/* Owned by timer.c. */
+		int64_t awake_tick;                 /* The time when sleeping thread to awake. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+
+		/* Owned by synch.c. */
+		struct thread *waiting_for;
+		
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */

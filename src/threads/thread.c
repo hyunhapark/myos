@@ -237,10 +237,12 @@ thread_create (const char *name, int priority,
 void
 thread_block (void) 
 {
+	struct thread *t;
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
 
-  thread_current ()->status = THREAD_BLOCKED;
+	t = thread_current ();
+  t->status = THREAD_BLOCKED;
   schedule ();
 }
 
@@ -260,6 +262,7 @@ thread_unblock (struct thread *t)
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
+	//printf("st:%d(%s)\n",t->status,t->name);
   ASSERT (t->status == THREAD_BLOCKED);
   list_push_back (&ready_list, &t->elem);
 	list_push_back (&pri_list[t->priority], &t->prielem);
@@ -287,6 +290,8 @@ thread_name (void)
 struct thread *
 thread_current (void) 
 {
+	//TODO
+  enum intr_level old_level = intr_disable ();
   struct thread *t = running_thread ();
   
   /* Make sure T is really a thread.
@@ -294,8 +299,10 @@ thread_current (void)
      have overflowed its stack.  Each thread has less than 4 kB
      of stack, so a few big automatic arrays or moderate
      recursion can cause stack overflow. */
+	//debug_backtrace();
   ASSERT (is_thread (t));
   ASSERT (t->status == THREAD_RUNNING);
+	intr_set_level (old_level);
 
   return t;
 }
@@ -312,6 +319,7 @@ thread_tid (void)
 void
 thread_exit (void) 
 {
+	struct thread *t;
   ASSERT (!intr_context ());
 
 #ifdef USERPROG
@@ -322,8 +330,9 @@ thread_exit (void)
      and schedule another process.  That process will destroy us
      when it calls thread_schedule_tail(). */
   intr_disable ();
-  list_remove (&thread_current()->allelem);
-  thread_current ()->status = THREAD_DYING;
+	t = thread_current ();
+  list_remove (&t->allelem);
+  t->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
 }
@@ -370,14 +379,19 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+	enum intr_level old_level;
 	int i;
 
   thread_current ()->priority = new_priority;
 	
 	//TODO
 	for ( i = new_priority+1 ; i<=PRI_MAX ; i++ ){	// increamental order is faster
+		old_level = intr_disable ();
 		if ( !list_empty (&pri_list[i]) ) {
+			intr_set_level (old_level);
 			thread_yield ();
+		} else {
+			intr_set_level (old_level);
 		}
 	}
 }

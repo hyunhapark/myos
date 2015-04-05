@@ -106,7 +106,7 @@ sema_try_down (struct semaphore *sema)
 bool
 thread_higher (const struct list_elem *a,
                              const struct list_elem *b,
-                             void *aux){
+                             void *aux UNUSED){
 	return list_entry (a, struct thread, elem)->priority 
 						> list_entry (b, struct thread, elem)->priority;
 }
@@ -204,11 +204,23 @@ lock_init (struct lock *lock)
 void
 lock_acquire (struct lock *lock)
 {
+	enum intr_level old_level;
+
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  sema_down (&lock->semaphore);
+
+	old_level = intr_disable ();
+  if (!sema_try_down (&lock->semaphore)){
+		if (lock->holder->priority < thread_current ()->priority) {
+			// TODO : Donate priority to holder.
+		}
+		intr_set_level (old_level);
+		sema_down (&lock->semaphore);
+	} else {
+		intr_set_level (old_level);
+	}
   lock->holder = thread_current ();
 }
 
@@ -318,7 +330,7 @@ cond_wait (struct condition *cond, struct lock *lock)
 bool
 sema_higher (const struct list_elem *a,
                              const struct list_elem *b,
-                             void *aux){
+                             void *aux UNUSED){
 	struct list_elem *aa = list_entry (a, struct semaphore_elem, elem)->semaphore.waiters.head.next;
 	struct list_elem *bb = list_entry (b, struct semaphore_elem, elem)->semaphore.waiters.head.next;
 
