@@ -95,14 +95,14 @@ timer_sleep (int64_t ticks)
 {
 	enum intr_level old_level;
   int64_t start = timer_ticks ();
-	int64_t end = start + ticks;
 	struct thread *t;
 
   ASSERT (intr_get_level () == INTR_ON);
-	t = thread_current ();
+
 	old_level = intr_disable ();
+	t = thread_current ();
 	list_push_back (&sleep_list, &t->sleepelem);
-	t->awake_tick = end;
+	t->awake_tick = start + ticks;
 	thread_block ();
 	intr_set_level (old_level);
 }
@@ -181,10 +181,10 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-	enum intr_level old_level;
   ticks++;
   int64_t now = ticks;
 	struct list_elem *e;
+	enum intr_level old_level;
 
 	old_level = intr_disable ();
 	for ( e = list_begin (&sleep_list); e != list_end (&sleep_list) ;
@@ -192,9 +192,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
 		struct thread *t = list_entry(e, struct thread, sleepelem);
 		if ( t->awake_tick <= now ){
 			e = list_remove (e)->prev;
-			//debug_backtrace();
-			ASSERT (t->status != THREAD_RUNNING);
-			ASSERT (t->status == THREAD_BLOCKED);
 			thread_unblock (t);
 		}
 

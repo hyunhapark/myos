@@ -99,7 +99,11 @@ struct thread
     struct list_elem elem;              /* List element. */
 
 		/* Owned by synch.c. */
-		struct thread *waiting_for;
+		struct thread *donated_for;         /* If this thread donated it's priority to thread A, 
+																					 then A is stored in this variable. */
+		struct lock *donated_to_get;        /* The acquired lock when donation has occured. */
+		struct list hold_list;              /* List of held locks. */
+		int original_priority;              /* Original priority. */
 		
 
 #ifdef USERPROG

@@ -8,7 +8,7 @@ CLEAN_SUBDIRS = $(BUILD_SUBDIRS) examples utils
 
 clean::
 	for d in $(CLEAN_SUBDIRS); do $(MAKE) -C $$d $@; done
-	rm -f TAGS tags
+	rm -f TAGS tags cscope.*out
 
 distclean:: clean
 	find . -name '*~' -exec rm '{}' \;

@@ -101,7 +101,6 @@ sema_try_down (struct semaphore *sema)
   return success;
 }
 
-//TODO
 /* Check if thread a's priority higher than b's. */
 bool
 thread_higher (const struct list_elem *a,
@@ -190,6 +189,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
+	lock->boosted_priority = -1;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -205,6 +205,8 @@ void
 lock_acquire (struct lock *lock)
 {
 	enum intr_level old_level;
+	struct thread *t;
+	struct thread *cur = thread_current ();
 
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
@@ -213,15 +215,36 @@ lock_acquire (struct lock *lock)
 
 	old_level = intr_disable ();
   if (!sema_try_down (&lock->semaphore)){
-		if (lock->holder->priority < thread_current ()->priority) {
-			// TODO : Donate priority to holder.
+		if (lock->holder->priority < cur->priority) {  // TODO : Donate priority to holder.
+			lock->holder->priority = cur->priority;	// current effective priority
+			lock->boosted_priority = cur->priority; // history of priorities
+			cur->donated_for = lock->holder;
+			cur->donated_to_get = lock;
+			t = lock->holder;
+			while ( t->donated_for != NULL ) {
+				if (t->donated_to_get->holder != t->donated_for){
+					t->donated_for = NULL;
+					t->donated_to_get = NULL;
+					break;
+				}
+				t->donated_for->priority = cur->priority;
+				t->donated_to_get->boosted_priority = cur->priority;
+				t = t->donated_for;
+			}
+			intr_set_level (old_level);
+			// Lock acquire
+			sema_down (&lock->semaphore);
+			cur->donated_for = NULL;     //TODO same lock in other threads?? XXX
+			cur->donated_to_get = NULL;  //TODO same lock in other threads?? XXX
+		} else {
+			intr_set_level (old_level);
+			sema_down (&lock->semaphore);
 		}
-		intr_set_level (old_level);
-		sema_down (&lock->semaphore);
 	} else {
 		intr_set_level (old_level);
 	}
-  lock->holder = thread_current ();
+	list_push_back (&cur->hold_list, &lock->holdelem);
+  lock->holder = cur;
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -230,6 +253,7 @@ lock_acquire (struct lock *lock)
 
    This function will not sleep, so it may be called within an
    interrupt handler. */
+//TODO : also add features include in `lock_acquire ()'.
 bool
 lock_try_acquire (struct lock *lock)
 {
@@ -252,10 +276,29 @@ lock_try_acquire (struct lock *lock)
 void
 lock_release (struct lock *lock) 
 {
+	struct list_elem *e;
+	struct thread *cur = thread_current ();
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
   lock->holder = NULL;
+
+	//TODO
+	// intr off???
+
+	list_remove (&lock->holdelem);
+	lock->boosted_priority = -1;
+
+	// Calculate effective priority by searching hold_list.
+	int max = cur->original_priority;
+	for (e = list_begin (&cur->hold_list); e != list_end (&cur->hold_list);
+			 e = list_next (e))
+		{
+			struct lock *l = list_entry (e, struct lock, holdelem);
+			if ( max < l->boosted_priority )
+				max = l->boosted_priority;
+		}
+	cur->priority = max;
   sema_up (&lock->semaphore);
 }
 
@@ -325,7 +368,6 @@ cond_wait (struct condition *cond, struct lock *lock)
   lock_acquire (lock);
 }
 
-//TODO
 /* Check if thread of sema a's priority higher than b's. */
 bool
 sema_higher (const struct list_elem *a,
