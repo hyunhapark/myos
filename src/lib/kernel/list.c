@@ -248,6 +248,7 @@ list_push_back (struct list *list, struct list_elem *elem)
 struct list_elem *
 list_remove (struct list_elem *elem)
 {
+	//volatile bool is_intr UNUSED = intr_context ();  // XXX - for debug
   ASSERT (is_interior (elem));
   elem->prev->next = elem->next;
   elem->next->prev = elem->prev;

@@ -33,6 +33,9 @@ static void real_time_delay (int64_t num, int32_t denom);
 /* List of sleeping processes, that is, processes that should be 
 	 checked each tick whether it should be awake or not. */
 extern struct list sleep_list;       // extern from src/threads/threads.c
+extern struct list pri_list[PRI_MAX+1];       // extern from src/threads/threads.c
+extern struct list rcc_list;
+extern int thread_priority;     
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
@@ -93,18 +96,17 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-	enum intr_level old_level;
   int64_t start = timer_ticks ();
 	struct thread *t;
 
   ASSERT (intr_get_level () == INTR_ON);
 
-	old_level = intr_disable ();
+	intr_disable ();
 	t = thread_current ();
 	list_push_back (&sleep_list, &t->sleepelem);
 	t->awake_tick = start + ticks;
 	thread_block ();
-	intr_set_level (old_level);
+	intr_enable ();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -185,19 +187,59 @@ timer_interrupt (struct intr_frame *args UNUSED)
   int64_t now = ticks;
 	struct list_elem *e;
 	enum intr_level old_level;
+	bool yield=false;
+
+  thread_tick ();
+
+	if (thread_mlfqs && (now % TIMER_FREQ == 0) ) {
+		update_load_avg();
+		update_recent_cpu();
+	}
 
 	old_level = intr_disable ();
-	for ( e = list_begin (&sleep_list); e != list_end (&sleep_list) ;
-				e = list_next (e)){
+	
+	if (thread_mlfqs && (now % 4 == 0)) {
+		for ( e = list_begin (&rcc_list); e != list_end (&rcc_list) ; e = list_next (e)) {
+			//TODO
+			int a, i;
+			struct thread *t = list_entry (e, struct thread, rccelem);
+			a = ftopc ( t->recent_cpu ) / 40;
+			a = a%10 > 5 ? a/10 + 1 : a/10;
+			int new_priority = PRI_MAX - a - t->nice * 2;
+			if (new_priority < PRI_MIN) {
+				new_priority = PRI_MIN;
+			} else if (new_priority > PRI_MAX) {
+				new_priority = PRI_MAX;
+			}
+			t->priority = new_priority;
+			t->original_priority = new_priority;
+			if(t->status==THREAD_READY){
+				list_remove (&t->prielem);
+				list_push_back (&pri_list[t->priority], &t->prielem);
+			}
+			e = list_remove (e)->prev;
+			t->rcc=false;
+
+			if (!yield)  for ( i=PRI_MAX ; i>thread_priority ; i-- )
+				if (!list_empty (&pri_list[i])){
+					yield=true;
+					intr_yield_on_return ();
+					break;
+				}
+		}
+	}
+
+	for ( e = list_begin (&sleep_list); e != list_end (&sleep_list); e = list_next (e)){
 		struct thread *t = list_entry(e, struct thread, sleepelem);
 		if ( t->awake_tick <= now ){
 			e = list_remove (e)->prev;
 			thread_unblock (t);
 		}
-
 	}
+
+
 	intr_set_level (old_level);
-  thread_tick ();
+
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

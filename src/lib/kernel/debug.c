@@ -75,7 +75,7 @@ print_stacktrace(struct thread *t, void *aux UNUSED)
       break;
   }
 
-  printf ("Call stack of thread `%s' (status %s):", t->name, status);
+  printf ("Call stack of thread `%s' (status %s / priority %d):", t->name, status, t->priority);
 
   if (t == thread_current()) 
     {

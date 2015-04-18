@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/fixed-point.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -23,6 +24,9 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define NICE_MIN -20                    /* Lowest nice. */
+#define NICE_DEFAULT 0                  /* Default nice. */
+#define NICE_MAX 20                     /* Highest nice. */
 
 /* A kernel thread or user process.
 
@@ -88,22 +92,28 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int nice;                           /* Nice. How nice to other threads. */
+		fixed recent_cpu;                   /* Recent CPU. how much CPU time each process
+																					 has received recently. */
     struct list_elem allelem;           /* List element for all threads list. */
     struct list_elem sleepelem;         /* List element for sleeping threads list. */
     struct list_elem prielem;           /* List element for all threads list. */
+		struct list_elem rccelem;           /* List element for recent_cpu changed list. */
+		bool rcc;                           /* If recent_cpu changed, it's true. It also means
+																				   whether rccelem is in the rcc_list or not. */
 
-		/* Owned by timer.c. */
-		int64_t awake_tick;                 /* The time when sleeping thread to awake. */
+    /* Owned by timer.c. */
+    int64_t awake_tick;                 /* The time when sleeping thread to awake. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
-		/* Owned by synch.c. */
-		struct thread *donated_for;         /* If this thread donated it's priority to thread A, 
+    /* Owned by synch.c. */
+    struct thread *donated_for;         /* If this thread donated it's priority to thread A, 
 																					 then A is stored in this variable. */
-		struct lock *donated_to_get;        /* The acquired lock when donation has occured. */
-		struct list hold_list;              /* List of held locks. */
-		int original_priority;              /* Original priority. */
+    struct lock *donated_to_get;        /* The acquired lock when donation has occured. */
+    struct list hold_list;              /* List of held locks. */
+    int original_priority;              /* Original priority. */
 		
 
 #ifdef USERPROG
@@ -150,5 +160,8 @@ int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
 int thread_get_load_avg (void);
+
+void update_load_avg(void);
+void update_recent_cpu(void);
 
 #endif /* threads/thread.h */
