@@ -12,22 +12,20 @@
 
 typedef int32_t fixed;
 
-// TODO : MACRO
-//#define itof(n) ((fixed)())
+inline fixed itof (int n);      // int to fixed
+inline int ftoi (fixed x);    // fixed to int
+inline int ftopc (fixed x);    // fixed to percent
+inline int ftoi_round (fixed x);
+inline fixed fadd (fixed op1, fixed op2);
+inline fixed fsub (fixed op1, fixed op2);
+inline fixed fmult (fixed op1, fixed op2);
+inline fixed fdiv (fixed op1, fixed op2);
+inline fixed faddn (fixed op1, int n);
+inline fixed fsubn (fixed op1, int n);
+inline fixed fmultn (fixed op1, int n);
+inline fixed fdivn (fixed op1, int n);
 
-fixed itof (int n);      // int to fixed
-int ftoi (fixed x);    // fixed to int
-int ftopc (fixed x);    // fixed to percent
-int ftoi_round (fixed x);
-fixed fadd (fixed op1, fixed op2);
-fixed fsub (fixed op1, fixed op2);
-fixed fmult (fixed op1, fixed op2);
-fixed fdiv (fixed op1, fixed op2);
-fixed faddn (fixed op1, int n);
-fixed fsubn (fixed op1, int n);
-fixed fmultn (fixed op1, int n);
-fixed fdivn (fixed op1, int n);
-
+/*
 union _cvt1 {
 	uint32_t f;
 	struct wrapped1{unsigned u:FIXED_Q, o:FIXED_P, s:1;} w;
@@ -37,5 +35,6 @@ union _cvt2 {
 	uint32_t f;
 	struct wrapped2{unsigned u:FIXED_Q; int o:FIXED_SP;} w;
 };
+//*/
 
 #endif	// threads/fixed-point.h
