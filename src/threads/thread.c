@@ -162,7 +162,7 @@ thread_tick (void)
 			list_push_back (&rcc_list, &t->rccelem);
 			t->rcc = true;
 		}
-		t->recent_cpu++;
+		t->recent_cpu = faddn(t->recent_cpu, 1);
 		intr_set_level (old_level);
 	}
 
