@@ -32,17 +32,17 @@ static void real_time_delay (int64_t num, int32_t denom);
 
 /* List of sleeping processes, that is, processes that should be 
 	 checked each tick whether it should be awake or not. */
-extern struct list sleep_list;       // extern from src/threads/threads.c
-extern struct list pri_list[PRI_MAX+1];       // extern from src/threads/threads.c
-extern struct list rcc_list;
-extern int thread_priority;     
+extern struct list sleep_list;            /* extern from threads/threads.c */
+extern struct list pri_list[PRI_MAX+1];   /* extern from threads/threads.c */
+extern struct list rcc_list;              /* extern from threads/threads.c */
+extern int thread_priority;               /* extern from threads/threads.c */   
 
 /* Sets up the timer to interrupt TIMER_FREQ times per second,
    and registers the corresponding interrupt. */
 void
 timer_init (void) 
 {
-  pit_configure_channel (0, 2, TIMER_FREQ);
+	pit_configure_channel (0, 2, REAL_TIMER_FREQ); /* Use REAL_TIMER_FREQ for timer emulation. */
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
 }
 
@@ -183,42 +183,65 @@ timer_print_stats (void)
 static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
-  ticks++;
+	/* Timer tick emulation. */
+	static int64_t real_ticks = 0;
+	real_ticks++;
+	register int ticks_per_upper_tick = thread_mlfqs
+			? TIMER_FREQ_FAKENESS 
+			: TIMER_FREQ_FAKENESS * TIMER_FREQ_REDUCE_FACTOR;
+	if(real_ticks % ticks_per_upper_tick != 0){
+		return;
+	}
+
+  ASSERT (intr_get_level () == INTR_OFF);
+
+  ticks++;  /* Emulated timer tick. */
+	barrier();
   int64_t now = ticks;
 	struct list_elem *e;
-	enum intr_level old_level;
 	bool yield=false;
 
   thread_tick ();
 
+	/* Per second job. */
 	if (thread_mlfqs && (now % TIMER_FREQ == 0) ) {
 		update_load_avg();
 		update_recent_cpu();
 	}
-
-	old_level = intr_disable ();
 	
+	/* Per 4 ticks job. */
 	if (thread_mlfqs && (now % 4 == 0)) {
-		for ( e = list_begin (&rcc_list); e != list_end (&rcc_list) ; e = list_next (e)) {
-			//TODO
-			int a, i;
+		/* For recent_cpu changed threads, update it's priority. */
+		for ( e = list_begin (&rcc_list); e != list_end (&rcc_list) ;) {
+			int i, new_priority;
+			register int a;
 			struct thread *t = list_entry (e, struct thread, rccelem);
+
+			/* Recalculated it's priority. */
 			a = ftopc ( t->recent_cpu ) / 40;
-			a = a%10 > 5 ? a/10 + 1 : a/10;
-			int new_priority = PRI_MAX - a - t->nice * 2;
-			if (new_priority < PRI_MIN) {
+			a = a%10 > 5 ? a/10 + 1 : a/10;  /* .5 should be rounded down.
+																					Because we'll use (-a). */
+			new_priority = PRI_MAX - a - t->nice * 2;
+
+			/* Adjust it's range. */
+			if (new_priority < PRI_MIN)
 				new_priority = PRI_MIN;
-			} else if (new_priority > PRI_MAX) {
+			else if (new_priority > PRI_MAX)
 				new_priority = PRI_MAX;
-			}
+
+			/* Set priority to new value. */
 			t->priority = new_priority;
 			t->original_priority = new_priority;
-			if(t->status==THREAD_READY){
+
+			/* If it's in ready_list, reset the location to new priority. */
+			if (t->status==THREAD_READY){
 				list_remove (&t->prielem);
 				list_push_back (&pri_list[t->priority], &t->prielem);
 			}
-			e = list_remove (e)->prev;
-			t->rcc=false;
+
+			/* Remove from recent_cpu changed list. And unmark the thread. */
+			e = list_remove (e);   /* Now `e' is set to the next element. */
+			t->rcc = false;
 
 			if (!yield)  for ( i=PRI_MAX ; i>thread_priority ; i-- )
 				if (!list_empty (&pri_list[i])){
@@ -229,6 +252,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
 		}
 	}
 
+	/* Wake sleeping threads. */
 	for ( e = list_begin (&sleep_list); e != list_end (&sleep_list); e = list_next (e)){
 		struct thread *t = list_entry(e, struct thread, sleepelem);
 		if ( t->awake_tick <= now ){
@@ -236,10 +260,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
 			thread_unblock (t);
 		}
 	}
-
-
-	intr_set_level (old_level);
-
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

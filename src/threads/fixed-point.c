@@ -16,7 +16,7 @@ ftopc (fixed x){    // fixed to percent
 }
 
 inline int
-ftoi_round (fixed x){
+ftoi_round (fixed x){  // round to zero
 	return (x>=0) ? (x + (FIXED_F>>1)) >> FIXED_Q 
 			: (x - (FIXED_F>>1)) >> FIXED_Q;
 }

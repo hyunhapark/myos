@@ -60,6 +60,11 @@ intr_exit:
            frame_pointer members. */
 	addl $12, %esp
 
+	/* TODO Discard pending interrupts. */
+	/*
+	and $254, %irr
+	*/
+
         /* Return to caller. */
 	iret
 .endfunc

@@ -217,9 +217,10 @@ lock_acquire (struct lock *lock)
 
 	old_level = intr_disable ();
   if (!sema_try_down (&lock->semaphore)){
-		if (lock->holder->priority < cur->priority) {  // TODO : Donate priority to holder.
-			lock->holder->priority = cur->priority;	// current effective priority
-			lock->boosted_priority = cur->priority; // history of priorities
+		/* Donate priority to holder. */
+		if (lock->holder->priority < cur->priority) {
+			lock->holder->priority = cur->priority;	/* current effective priority */
+			lock->boosted_priority = cur->priority; /* history of priorities */
 			cur->donated_for = lock->holder;
 			cur->donated_to_get = lock;
 			t = lock->holder;
@@ -234,10 +235,11 @@ lock_acquire (struct lock *lock)
 				t = t->donated_for;
 			}
 			intr_set_level (old_level);
-			// Lock acquire
+
+			/* Lock acquire */
 			sema_down (&lock->semaphore);
-			cur->donated_for = NULL;     //TODO same lock in other threads?? XXX
-			cur->donated_to_get = NULL;  //TODO same lock in other threads?? XXX
+			cur->donated_for = NULL;
+			cur->donated_to_get = NULL;
 		} else {
 			intr_set_level (old_level);
 			sema_down (&lock->semaphore);
@@ -256,6 +258,7 @@ lock_acquire (struct lock *lock)
    This function will not sleep, so it may be called within an
    interrupt handler. */
 //TODO : also add features include in `lock_acquire ()'.
+/*
 bool
 lock_try_acquire (struct lock *lock)
 {
@@ -269,6 +272,7 @@ lock_try_acquire (struct lock *lock)
     lock->holder = thread_current ();
   return success;
 }
+*/
 
 /* Releases LOCK, which must be owned by the current thread.
 
@@ -287,13 +291,10 @@ lock_release (struct lock *lock)
 	old_level = intr_disable ();
   lock->holder = NULL;
 
-	//TODO
-	// intr off???
-
 	list_remove (&lock->holdelem);
 	lock->boosted_priority = -1;
 
-	// Calculate effective priority by searching hold_list.
+	/* Calculate effective priority by searching hold_list. */
 	int max = cur->original_priority;
 	for (e = list_begin (&cur->hold_list); e != list_end (&cur->hold_list);
 			 e = list_next (e))
