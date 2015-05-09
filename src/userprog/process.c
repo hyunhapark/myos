@@ -19,7 +19,7 @@
 #include "threads/vaddr.h"
 
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static bool load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, int arg_len, int argc);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -54,12 +54,32 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
+	int argc=0;
+	int offset=0;
+	char *p=0;
+	char *ptr=0;
+
+	/* Parse cmdline. */
+	p = strtok_r(file_name, " \t\n", &ptr);
+	argc++;
+	offset += (strlen(p)+1);
+	while (1) {
+		int len=0;
+		p = strtok_r(NULL, " \t\n", &ptr);
+		if (p == NULL) break;
+		len = strlen(p);
+		argc++;
+		if ( file_name+offset != p )
+			strlcpy(file_name+offset, p, len+1);
+		offset += len+1;
+	}
+
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (file_name, &if_.eip, &if_.esp, file_name, offset, argc);
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
@@ -86,9 +106,20 @@ start_process (void *file_name_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
-  return -1;
+	int status = 0;
+	struct thread *t = get_thread_by_tid (child_tid);
+	sema_down (&t->exit_wait_sema);
+	status = t->exit_status;
+
+	/* Remove process from all_list. */
+	list_remove (&t->allelem);
+
+	/* Free memory of PCB. */
+	palloc_free_page (t);
+
+  return status;
 }
 
 /* Free the current process's resources. */
@@ -195,7 +226,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, char *arg_start, int arg_len, int argc);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -206,7 +237,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp) 
+load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, int arg_len, int argc) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -302,7 +333,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp))
+  if (!setup_stack (esp, arg_start, arg_len, argc))
     goto done;
 
   /* Start address. */
@@ -427,7 +458,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp) 
+setup_stack (void **esp, char *arg_start, int arg_len, int argc) 
 {
   uint8_t *kpage;
   bool success = false;
@@ -436,9 +467,33 @@ setup_stack (void **esp)
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success)
-        *esp = PHYS_BASE;
-      else
+      if (success){
+				//TODO
+				memcpy(kpage + PGSIZE - arg_len, arg_start, arg_len);
+				uint32_t *kp = (uint32_t *) ((( ( ((unsigned)kpage+PGSIZE) - arg_len )>>2 )-1-argc-2)*4);
+				uint32_t *up = (uint32_t *) ((( ( ((unsigned)PHYS_BASE) - arg_len )>>2 )-1-argc)*4);
+				*kp = (uint32_t) argc;
+				*(kp+1) = (uint32_t) up;
+				*(kp+2) = (uint32_t) (up+argc+1);
+				char *p= (char *) *(kp+2);
+				if(*p!=0){
+				}else if(*(p+1)!=0){
+					*(kp+2) = (uint32_t) (p+1);
+				}else if(*(p+2)!=0){
+					*(kp+2) = (uint32_t) (p+2);
+				}else if(*(p+3)!=0){
+					*(kp+2) = (uint32_t) (p+3);
+				}
+				int i;
+				for (i=1;i<argc;i++){
+					char *s = (char *) *(kp+1+i);
+					*(kp+2+i) = (uint32_t) (s+strlen(s)+1);
+				}
+				*(kp+2+argc)= (uint32_t) 0;
+
+        *esp = up-3;
+				//*esp = PHYS_BASE -12;
+			}else
         palloc_free_page (kpage);
     }
   return success;

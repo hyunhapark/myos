@@ -349,7 +349,9 @@ thread_exit (void)
      when it calls thread_schedule_tail(). */
   intr_disable ();
 	t = thread_current ();
+#ifndef USERPROG
   list_remove (&t->allelem);
+#endif
 	/* If the thread is in the recent_cpu changed list, then remove. */
 	if(t->rcc)
 		list_remove (&t->rccelem);	
@@ -575,6 +577,17 @@ init_thread (struct thread *t, const char *name, int priority, int nice)
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
+#ifdef USERPROG
+	int i;
+	for (i=0;i<16;i++)
+		if (t->name[i]==' ' || 
+				t->name[i]=='\t' ||
+				t->name[i]=='\n'){
+			t->name[i]='\0';
+			break;
+		}else if (t->name[i]=='\0')
+			break;
+#endif
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->original_priority = priority;
@@ -584,6 +597,13 @@ init_thread (struct thread *t, const char *name, int priority, int nice)
 	t->donated_for = NULL;
 	t->donated_to_get = NULL;
   t->magic = THREAD_MAGIC;
+
+#ifdef USERPROG
+	t->exit_status=0;
+	sema_init(&t->exit_wait_sema, 0);
+	t->lastfd = 2;
+	list_init (&t->open_list);
+#endif
 
   list_init (&t->hold_list);
 
@@ -674,7 +694,13 @@ thread_schedule_tail (struct thread *prev)
   if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
     {
       ASSERT (prev != cur);
+#ifdef USERPROG
+			/* We don't free the TCB yet. Because we have to use exit_status 
+				 value in wait(). */
+			sema_up (&prev->exit_wait_sema);
+#else
       palloc_free_page (prev);
+#endif
     }
 }
 
@@ -770,4 +796,20 @@ update_recent_cpu (void)
 		}
 }
 
+/* Search thread that has the tid in all_list. */
+struct thread *get_thread_by_tid (tid_t tid){
+	
+	struct thread *t;
+	struct list_elem *e;
+
+  for (e = list_begin (&all_list); e != list_end (&all_list);
+       e = list_next (e))
+    {
+			t = list_entry (e, struct thread, allelem);
+			if ( t->tid == tid ){
+				return t;
+			}
+		}
+	return NULL;
+}
 
