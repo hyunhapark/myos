@@ -599,10 +599,11 @@ init_thread (struct thread *t, const char *name, int priority, int nice)
   t->magic = THREAD_MAGIC;
 
 #ifdef USERPROG
-	t->exit_status=0;
+	t->exit_status=-1;
 	sema_init(&t->exit_wait_sema, 0);
 	t->lastfd = 2;
 	list_init (&t->open_list);
+	sema_init (&t->loaded, 0);
 #endif
 
   list_init (&t->hold_list);

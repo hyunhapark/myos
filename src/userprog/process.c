@@ -83,9 +83,14 @@ start_process (void *file_name_)
 
   /* If load failed, quit. */
   palloc_free_page (file_name);
-  if (!success) 
+  if (!success) {
+		thread_current ()->exit_status=-1;
     thread_exit ();
+	}
 
+	/* Tell parent that load is finished. */
+	sema_up (&thread_current ()->loaded);
+	
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -110,6 +115,9 @@ process_wait (tid_t child_tid)
 {
 	int status = 0;
 	struct thread *t = get_thread_by_tid (child_tid);
+	if (t==NULL) {
+		return -1;
+	}
 	sema_down (&t->exit_wait_sema);
 	status = t->exit_status;
 

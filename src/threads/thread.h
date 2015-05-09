@@ -124,6 +124,7 @@ struct thread
 		struct semaphore exit_wait_sema;
 		int lastfd;
 		struct list open_list;
+		struct semaphore loaded;
 #endif
 
     /* Owned by thread.c. */

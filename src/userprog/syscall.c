@@ -18,7 +18,7 @@
 static void syscall_handler (struct intr_frame *);
 
 static bool str_over_boundary (const char *);
-static char * strbond (char *, const char *);
+static char *strlbond (char *, const char *, size_t);
 
 /* Projects 2 and later. */
 static void halt (void);
@@ -56,6 +56,14 @@ static void
 syscall_handler (struct intr_frame *f) 
 {
 	uint32_t *esp = f->esp;
+	ASSERT (esp);
+	if (esp>=PHYS_BASE){
+		exit (-1);
+	}
+	esp = (uint32_t) user_vtop ((const void *) esp);
+	if (esp==NULL){
+		exit(-1);
+	}
 	int syscall_num = *esp;
 
 	switch(syscall_num){
@@ -84,6 +92,7 @@ syscall_handler (struct intr_frame *f)
 	case SYS_READDIR:  printf("SYS_READDIR\n"); break;
 	case SYS_ISDIR:    printf("SYS_ISDIR\n"); break;
 	case SYS_INUMBER:  printf("SYS_INUMBER\n"); break;
+	default:	PANIC ("Wrong System call.\n"); break;
 	}
 }
 
@@ -137,12 +146,21 @@ exit (int status)
 }
 
 static pid_t
-exec (const char *_file)
+exec (const char *_cmd_line)
 {
-	char *file = (char *) palloc_get_page (0);
-	strlbond (file, _file, PGSIZE);
-	pid_t pid = (pid_t) process_execute (file);
-	palloc_free_page (file);
+	if (_cmd_line >= PHYS_BASE) {
+		return -1;
+	}
+	char *cmd_line = (char *) palloc_get_page (0);
+	strlbond (cmd_line, _cmd_line, PGSIZE);
+	pid_t pid = (pid_t) process_execute (cmd_line);
+	palloc_free_page (cmd_line);
+	
+	/* Wait for load. */
+	struct thread *child = get_thread_by_tid ((tid_t) pid);
+	ASSERT (child);
+	sema_down (&child->loaded);
+
 	return pid;
 }
 
@@ -155,6 +173,9 @@ wait (pid_t pid)
 static bool
 create (const char *_file, unsigned initial_size)
 {
+	if (_file >= PHYS_BASE) {
+		return false;
+	}
 	bool success = false;
 	char *file = (char *) palloc_get_page (0);
 	strlbond (file, _file, PGSIZE);
@@ -166,6 +187,9 @@ create (const char *_file, unsigned initial_size)
 static bool
 remove (const char *_file)
 {
+	if (_file >= PHYS_BASE) {
+		return false;
+	}
 	bool success = false;
 	char *file = (char *) palloc_get_page (0);
 	strlbond (file, _file, PGSIZE);
@@ -177,6 +201,9 @@ remove (const char *_file)
 static int
 open (const char *_file)
 {
+	if (_file >= PHYS_BASE) {
+		return -1;
+	}
 	struct thread *t = thread_current ();
 	struct file *f;
 	int fd = -1;
@@ -213,6 +240,9 @@ filesize (int fd)
 static int
 read (int fd, void *_buffer, unsigned size)
 {
+	if (_buffer >= PHYS_BASE) {
+		return -1;
+	}
 	//TODO
   return 0;
 }
@@ -220,6 +250,9 @@ read (int fd, void *_buffer, unsigned size)
 static int
 write (int fd, const void *_buffer, unsigned size)
 {
+	if (_buffer >= PHYS_BASE) {
+		return -1;
+	}
 	int wrote = 0;
 
 	char *buffer = (char *) palloc_get_page (0);
@@ -232,6 +265,9 @@ write (int fd, const void *_buffer, unsigned size)
 			size -= MIN(size, PGSIZE-1);
 		} else {
 			//TODO
+			//putbuf (buffer, MIN(size, PGSIZE-1));
+			wrote += MIN(size, PGSIZE-1);
+			size -= MIN(size, PGSIZE-1);
 		}
 	}
 	palloc_free_page (buffer);

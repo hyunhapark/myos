@@ -105,6 +105,8 @@ user_vtop (const void *vaddr)
 	uintptr_t offset = pg_ofs (vaddr);
 
 	const void *ppage = pagedir_get_page (t->pagedir, vpage);
+	if(ppage==NULL) 
+		return (uintptr_t)NULL;
 	return (uintptr_t) (ppage + offset);
 }
 #endif
