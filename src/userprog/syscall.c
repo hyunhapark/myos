@@ -1,13 +1,14 @@
 #include "userprog/syscall.h"
+#include <list.h>
 #include <stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
+#include "filesys/file.h"
+#include "filesys/filesys.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "threads/malloc.h"
-#include "filesys/filesys.h"
-#include <list.h>
-#include <string.h>
 #include "devices/shutdown.h"
 #include "threads/palloc.h"
 #include "userprog/process.h"
@@ -77,7 +78,7 @@ syscall_handler (struct intr_frame *f)
 	case SYS_OPEN:     /*printf("SYS_OPEN\n"); */     f->eax = open ((const char *) *(esp+1)); break;
 	case SYS_FILESIZE: /*printf("SYS_FILESIZE\n"); */ f->eax = filesize ((int) *(esp+1)); break;
 	case SYS_READ:     /*printf("SYS_READ\n"); */     f->eax = read ((int) *(esp+1), (void *) *(esp+2), (unsigned) *(esp+3)); break;
-	case SYS_WRITE:    /*printf("SYS_WRITE\n"); */    write((int) *(esp+1), (const void *) *(esp+2), (unsigned) *(esp+3)); break;
+	case SYS_WRITE:    /*printf("SYS_WRITE\n"); */    f->eax = write((int) *(esp+1), (const void *) *(esp+2), (unsigned) *(esp+3)); break;
 	case SYS_SEEK:     /*printf("SYS_SEEK\n"); */     seek ((int) *(esp+1), (unsigned) *(esp+2)); break;
 	case SYS_TELL:     /*printf("SYS_TELL\n"); */     f->eax = tell ((int) *(esp+1)); break;
 	case SYS_CLOSE:    /*printf("SYS_CLOSE\n"); */    close ((int) *(esp+1)); break;
@@ -130,6 +131,24 @@ strlbond (char *dst, const char *src, size_t size){
 	return dst;
 }
 
+/* Search file that has opened with fd in thread's open_list. */
+struct file *get_file_by_fd (int fd){
+	
+	struct file *f;
+	struct thread *t = thread_current ();
+	struct list_elem *e;
+
+  for (e = list_begin (&t->open_list); e != list_end (&t->open_list);
+       e = list_next (e))
+    {
+			struct openfile *of = list_entry (e, struct openfile, openelem);
+			if ( of->fd = fd ){
+				return of->f;
+			}
+		}
+	return NULL;
+}
+
 static void
 halt (void) 
 {
@@ -155,11 +174,6 @@ exec (const char *_cmd_line)
 	strlbond (cmd_line, _cmd_line, PGSIZE);
 	pid_t pid = (pid_t) process_execute (cmd_line);
 	palloc_free_page (cmd_line);
-	
-	/* Wait for load. */
-	struct thread *child = get_thread_by_tid ((tid_t) pid);
-	ASSERT (child);
-	sema_down (&child->loaded);
 
 	return pid;
 }
@@ -233,8 +247,14 @@ open (const char *_file)
 static int
 filesize (int fd) 
 {
-	//TODO
-  return 0;
+	int len;
+	struct file *f = get_file_by_fd (fd);
+	if (f==NULL) {
+		return -1;
+	}
+
+	len = (int) file_length (f);
+  return len;
 }
 
 static int
@@ -243,8 +263,38 @@ read (int fd, void *_buffer, unsigned size)
 	if (_buffer >= PHYS_BASE) {
 		return -1;
 	}
-	//TODO
-  return 0;
+
+	char *buffer = (char *) user_vtop (_buffer);
+	uintptr_t remain = (uintptr_t)pg_round_down(buffer+PGSIZE) - (uintptr_t)buffer;
+	off_t offset = 0;
+
+	while (size>0){
+		if (fd == STDIN_FILENO){
+			off_t st_offset = offset;
+			for (; size>0 && (pg_ofs(_buffer+offset)!=0 || offset==st_offset); offset++){
+				buffer[offset] = input_getc ();
+				offset++;
+				size--;
+			}
+			if(size>0){
+				buffer = (char *) (user_vtop (_buffer+offset) - offset);
+				//remain = PGSIZE-pg_ofs(_buffer+offset);
+			}
+		} else {
+			struct file *f = get_file_by_fd (fd);
+			if (f==NULL) {
+				return -1;
+			}
+			off_t read_now = file_read (f, buffer, (off_t) MIN(size, remain));
+			offset += (int) read_now;
+			size -= (unsigned) read_now;
+			if(size>0){
+				buffer = (char *) (user_vtop (_buffer+offset) - offset);
+				remain = PGSIZE-pg_ofs(_buffer+offset);
+			}
+		}
+	}
+  return (int) offset;
 }
 
 static int
@@ -262,12 +312,17 @@ write (int fd, const void *_buffer, unsigned size)
 		if (fd == STDOUT_FILENO){
 			putbuf (buffer, MIN(size, PGSIZE-1));
 			wrote += MIN(size, PGSIZE-1);
+			barrier ();
 			size -= MIN(size, PGSIZE-1);
 		} else {
-			//TODO
-			//putbuf (buffer, MIN(size, PGSIZE-1));
-			wrote += MIN(size, PGSIZE-1);
-			size -= MIN(size, PGSIZE-1);
+			struct file *f = get_file_by_fd (fd);
+			if (f==NULL) {
+				return -1;
+			}
+			off_t wrote_now = file_write (f, buffer, (off_t) MIN(size, PGSIZE-1));
+			barrier ();
+			wrote += (int) wrote_now;
+			size -= (unsigned) wrote_now;
 		}
 	}
 	palloc_free_page (buffer);
@@ -277,20 +332,34 @@ write (int fd, const void *_buffer, unsigned size)
 static void
 seek (int fd, unsigned position) 
 {
-	//TODO
+	struct file *f = get_file_by_fd (fd);
+	if (f==NULL) {
+		return;
+	}
+
+	file_seek (f, (off_t) position);
 }
 
 static unsigned
 tell (int fd) 
 {
-	//TODO
-	return 0;
+	struct file *f = get_file_by_fd (fd);
+	if (f==NULL) {
+		return -1;
+	}
+
+	return file_tell (f);
 }
 
 static void
 close (int fd)
 {
-	//TODO
+	struct file *f = get_file_by_fd (fd);
+	if (f==NULL) {
+		return;
+	}
+
+	file_close (f);
 }
 
 /* ----- til here, enough for project2 ----- */

@@ -42,7 +42,17 @@ process_execute (const char *file_name)
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
   if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
-  return tid;
+
+	/* Wait for child finish loading. */
+	struct thread *child = get_thread_by_tid (tid);
+	ASSERT (child);
+	sema_down (&child->loaded);
+
+	/* If failed to load, return -1. */
+	if (child->status==THREAD_DYING)
+		return TID_ERROR;
+
+	return tid;
 }
 
 /* A thread function that loads a user process and starts it
@@ -88,8 +98,10 @@ start_process (void *file_name_)
     thread_exit ();
 	}
 
+#ifdef USERPROG
 	/* Tell parent that load is finished. */
 	sema_up (&thread_current ()->loaded);
+#endif
 	
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
