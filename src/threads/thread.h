@@ -126,6 +126,7 @@ struct thread
 		struct list open_list;
 		struct semaphore loaded;
 		bool load_failed;
+		struct file *my_binary;
 #endif
 
     /* Owned by thread.c. */

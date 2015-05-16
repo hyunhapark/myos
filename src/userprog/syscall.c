@@ -173,6 +173,13 @@ void
 exit (int status)
 {
 	struct thread *cur = thread_current ();
+	struct file *f = cur->my_binary;
+	if (f!=NULL){
+		if (f->deny_write)
+			file_allow_write (f);
+		file_close (f);
+	}
+
 	cur->exit_status = status;
 	printf ("%s: exit(%d)\n", cur->name, status);
 	thread_exit ();
@@ -333,8 +340,12 @@ write (int fd, const void *_buffer, unsigned size)
 			if (f==NULL) {
 				return -1;
 			}
+			if (f->deny_write)
+				return 0;
 			off_t wrote_now = file_write (f, buffer, (off_t) MIN(size, PGSIZE-1));
 			barrier ();
+			if (wrote_now==0)
+				return wrote;
 			wrote += (int) wrote_now;
 			size -= (unsigned) wrote_now;
 		}

@@ -291,6 +291,12 @@ load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, i
       goto done; 
     }
 
+	t->my_binary = file;
+
+	if (!file->deny_write){
+		file_deny_write (file);
+	}
+
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
@@ -374,7 +380,6 @@ load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, i
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
@@ -499,7 +504,6 @@ setup_stack (void **esp, char *arg_start, int arg_len, int argc)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success){
-				//TODO
 				memcpy(kpage + PGSIZE - arg_len, arg_start, arg_len);
 				uint32_t *kp = (uint32_t *) ((( ( ((unsigned)kpage+PGSIZE) - arg_len )>>2 )-1-argc-2)*4);
 				uint32_t *up = (uint32_t *) ((( ( ((unsigned)PHYS_BASE) - arg_len )>>2 )-1-argc)*4);
