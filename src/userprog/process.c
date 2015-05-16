@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "userprog/syscall.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, int arg_len, int argc);
@@ -40,8 +41,10 @@ process_execute (const char *file_name)
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
+  if (tid == TID_ERROR) {
     palloc_free_page (fn_copy); 
+		return tid;
+	}
 
 	/* Wait for child finish loading. */
 	struct thread *child = get_thread_by_tid (tid);
@@ -49,7 +52,7 @@ process_execute (const char *file_name)
 	sema_down (&child->loaded);
 
 	/* If failed to load, return -1. */
-	if (child->status==THREAD_DYING)
+	if (child->load_failed)
 		return TID_ERROR;
 
 	return tid;
@@ -94,14 +97,17 @@ start_process (void *file_name_)
   /* If load failed, quit. */
   palloc_free_page (file_name);
   if (!success) {
-		thread_current ()->exit_status=-1;
-    thread_exit ();
+		struct thread *cur = thread_current ();
+
+		/* Tell parent that load is failed. */
+		cur->load_failed = true;
+		sema_up (&cur->loaded);
+
+		exit (-1);
 	}
 
-#ifdef USERPROG
 	/* Tell parent that load is finished. */
 	sema_up (&thread_current ()->loaded);
-#endif
 	
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -126,6 +132,9 @@ int
 process_wait (tid_t child_tid) 
 {
 	int status = 0;
+
+	enum intr_level old_level = intr_disable ();
+
 	struct thread *t = get_thread_by_tid (child_tid);
 	if (t==NULL) {
 		return -1;
@@ -138,6 +147,8 @@ process_wait (tid_t child_tid)
 
 	/* Free memory of PCB. */
 	palloc_free_page (t);
+
+	intr_set_level (old_level);
 
   return status;
 }

@@ -23,7 +23,6 @@ static char *strlbond (char *, const char *, size_t);
 
 /* Projects 2 and later. */
 static void halt (void);
-static void exit (int status);
 static pid_t exec (const char *file);
 static int wait (pid_t);
 static bool create (const char *file, unsigned initial_size);
@@ -62,9 +61,6 @@ syscall_handler (struct intr_frame *f)
 		exit (-1);
 	}
 	esp = (uint32_t) user_vtop ((const void *) esp);
-	if (esp==NULL){
-		exit(-1);
-	}
 	int syscall_num = *esp;
 
 	switch(syscall_num){
@@ -149,13 +145,31 @@ struct file *get_file_by_fd (int fd){
 	return NULL;
 }
 
+/* Search openfile that has opened with fd in thread's open_list. */
+struct openfile *get_openfile_by_fd (int fd){
+	
+	struct file *f;
+	struct thread *t = thread_current ();
+	struct list_elem *e;
+
+  for (e = list_begin (&t->open_list); e != list_end (&t->open_list);
+       e = list_next (e))
+    {
+			struct openfile *of = list_entry (e, struct openfile, openelem);
+			if ( of->fd = fd ){
+				return of;
+			}
+		}
+	return NULL;
+}
+
 static void
 halt (void) 
 {
   shutdown_power_off ();
 }
 
-static void
+void
 exit (int status)
 {
 	struct thread *cur = thread_current ();
@@ -168,7 +182,7 @@ static pid_t
 exec (const char *_cmd_line)
 {
 	if (_cmd_line >= PHYS_BASE) {
-		return -1;
+		exit (-1);
 	}
 	char *cmd_line = (char *) palloc_get_page (0);
 	strlbond (cmd_line, _cmd_line, PGSIZE);
@@ -188,7 +202,7 @@ static bool
 create (const char *_file, unsigned initial_size)
 {
 	if (_file >= PHYS_BASE) {
-		return false;
+		exit (-1);
 	}
 	bool success = false;
 	char *file = (char *) palloc_get_page (0);
@@ -202,7 +216,7 @@ static bool
 remove (const char *_file)
 {
 	if (_file >= PHYS_BASE) {
-		return false;
+		exit (-1);
 	}
 	bool success = false;
 	char *file = (char *) palloc_get_page (0);
@@ -216,7 +230,7 @@ static int
 open (const char *_file)
 {
 	if (_file >= PHYS_BASE) {
-		return -1;
+		exit (-1);
 	}
 	struct thread *t = thread_current ();
 	struct file *f;
@@ -261,7 +275,7 @@ static int
 read (int fd, void *_buffer, unsigned size)
 {
 	if (_buffer >= PHYS_BASE) {
-		return -1;
+		exit (-1);
 	}
 
 	char *buffer = (char *) user_vtop (_buffer);
@@ -301,7 +315,7 @@ static int
 write (int fd, const void *_buffer, unsigned size)
 {
 	if (_buffer >= PHYS_BASE) {
-		return -1;
+		exit (-1);
 	}
 	int wrote = 0;
 
@@ -354,12 +368,18 @@ tell (int fd)
 static void
 close (int fd)
 {
-	struct file *f = get_file_by_fd (fd);
-	if (f==NULL) {
+	enum intr_level old_level = intr_disable ();
+	struct openfile *of = get_openfile_by_fd (fd);
+	if (of==NULL) {
+		intr_set_level (old_level);
 		return;
 	}
 
-	file_close (f);
+	file_close (of->f);
+	list_remove (&of->openelem);
+	free (of);
+	
+	intr_set_level (old_level);
 }
 
 /* ----- til here, enough for project2 ----- */

@@ -125,6 +125,7 @@ struct thread
 		int lastfd;
 		struct list open_list;
 		struct semaphore loaded;
+		bool load_failed;
 #endif
 
     /* Owned by thread.c. */
