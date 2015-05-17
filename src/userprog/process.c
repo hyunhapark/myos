@@ -21,7 +21,6 @@
 
 extern struct lock filesys_lock;
 
-static thread_func start_process NO_RETURN;
 static bool load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, int arg_len, int argc);
 
 /* Starts a new thread running a user program loaded from
@@ -62,7 +61,7 @@ process_execute (const char *file_name)
 
 /* A thread function that loads a user process and starts it
    running. */
-static void
+void
 start_process (void *file_name_)
 {
   char *file_name = file_name_;
@@ -135,7 +134,6 @@ process_wait (tid_t child_tid)
 {
 	int status = 0;
 
-
 	struct thread *t = get_thread_by_tid (child_tid);
 	if (t==NULL) {
 		return -1;
@@ -148,7 +146,6 @@ process_wait (tid_t child_tid)
 
 	/* Free memory of PCB. */
 	palloc_free_page (t);
-
 
   return status;
 }
@@ -529,7 +526,6 @@ setup_stack (void **esp, char *arg_start, int arg_len, int argc)
 				*(kp+2+argc)= (uint32_t) 0;
 
         *esp = up-3;
-				//*esp = PHYS_BASE -12;
 			}else
         palloc_free_page (kpage);
     }

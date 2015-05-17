@@ -76,7 +76,7 @@ static void kernel_thread (thread_func *, void *aux);
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
-static void init_thread (struct thread *, const char *name, int priority, int nice);
+static void init_thread (struct thread *, const char *name, int priority, int nice, bool is_user_thread);
 static bool is_thread (struct thread *) UNUSED;
 static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
@@ -117,7 +117,7 @@ thread_init (void)
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
-  init_thread (initial_thread, "main", PRI_DEFAULT, NICE_DEFAULT);
+  init_thread (initial_thread, "main", PRI_DEFAULT, NICE_DEFAULT, false);
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
 }
@@ -219,7 +219,7 @@ thread_create (const char *name, int priority,
 	nice = thread_current ()->nice;
   ASSERT (NICE_MIN <= nice && nice <= NICE_MAX);
 
-  init_thread (t, name, priority, nice);
+  init_thread (t, name, priority, nice, function==start_process);
   tid = t->tid = allocate_tid ();
 
   old_level = intr_disable ();
@@ -566,7 +566,7 @@ is_thread (struct thread *t)
 /* Does basic initialization of T as a blocked thread named
    NAME. */
 static void
-init_thread (struct thread *t, const char *name, int priority, int nice)
+init_thread (struct thread *t, const char *name, int priority, int nice, bool is_user_process)
 {
   enum intr_level old_level;
 
@@ -608,6 +608,7 @@ init_thread (struct thread *t, const char *name, int priority, int nice)
 	lock_init (&t->open_list_lock);
 	sema_init (&t->loaded, 0);
 	lock_init (&t->fdlock);
+	t->is_process = is_user_process;
 #endif
 
   list_init (&t->hold_list);
@@ -700,9 +701,13 @@ thread_schedule_tail (struct thread *prev)
     {
       ASSERT (prev != cur);
 #ifdef USERPROG
-			/* We don't free the TCB yet. Because we have to use exit_status 
-				 value in wait(). */
-			sema_up (&prev->exit_wait_sema);
+			if(prev->is_process) {
+				/* We don't free the TCB yet. Because we have to use exit_status 
+					 value in wait(). */
+				sema_up (&prev->exit_wait_sema);
+			} else {
+				palloc_free_page (prev);
+			}
 #else
       palloc_free_page (prev);
 #endif

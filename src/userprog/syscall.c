@@ -13,6 +13,7 @@
 #include "threads/palloc.h"
 #include "userprog/process.h"
 #include "threads/synch.h"
+#include "devices/input.h"
 
 #define MIN(x, y)	(((x)>(y))?(y):(x))
 #define MAX(x, y)	(((x)>(y))?(x):(y))
@@ -41,15 +42,15 @@ static unsigned tell (int fd);
 static void close (int fd);
 
 /* Project 3 and optionally project 4. */
-static mapid_t mmap (int fd, void *addr);
-static void munmap (mapid_t);
+static mapid_t mmap (int fd, void *addr) UNUSED;
+static void munmap (mapid_t) UNUSED;
 
 /* Project 4 only. */
-static bool chdir (const char *dir);
-static bool mkdir (const char *dir);
-static bool readdir (int fd, char name[READDIR_MAX_LEN + 1]);
-static bool isdir (int fd);
-static int inumber (int fd);
+static bool chdir (const char *dir) UNUSED;
+static bool mkdir (const char *dir) UNUSED;
+static bool readdir (int fd, char name[READDIR_MAX_LEN + 1]) UNUSED;
+static bool isdir (int fd) UNUSED;
+static int inumber (int fd) UNUSED;
 
 void
 syscall_init (void) 
@@ -64,9 +65,9 @@ syscall_handler (struct intr_frame *f)
 	uint32_t *esp, *kesp = f->esp;
 
 	/* Check %esp. */
-	if (kesp >= PHYS_BASE) exit (-1);
+	if ((void *)kesp >= PHYS_BASE) exit (-1);
 	
-	esp = (uint32_t)user_vtop ((const void *) kesp);
+	esp = (uint32_t *)user_vtop ((const void *) kesp);
 
 	int syscall_num = *esp;
 
@@ -77,15 +78,15 @@ syscall_handler (struct intr_frame *f)
 	case SYS_OPEN: case SYS_FILESIZE: case SYS_TELL: case SYS_CLOSE:
 	case SYS_MUNMAP: case SYS_CHDIR: case SYS_MKDIR: case SYS_ISDIR:
 	case SYS_INUMBER:
-		if (kesp+1 >= PHYS_BASE) exit (-1);
+		if ((void *)(kesp+1) >= PHYS_BASE) exit (-1);
 		break;
 	/* If argument is two. */
 	case SYS_CREATE: case SYS_SEEK: case SYS_MMAP: case SYS_READDIR:
-		if (kesp+2 >= PHYS_BASE) exit (-1);
+		if ((void *)(kesp+2) >= PHYS_BASE) exit (-1);
 		break;
 	/* If argument is three. */
 	case SYS_READ: case SYS_WRITE:
-		if (kesp+3 >= PHYS_BASE) exit (-1);
+		if ((void *)(kesp+3) >= PHYS_BASE) exit (-1);
 		break;
 	}
 
@@ -164,7 +165,7 @@ get_file_by_fd (int fd) {
        e = list_next (e))
     {
 			struct openfile *of = list_entry (e, struct openfile, openelem);
-			if ( of->fd = fd ){
+			if ( of->fd == fd ){
 				f = of->f;
 				lock_release (&t->open_list_lock);
 				return f;
@@ -185,7 +186,7 @@ get_openfile_by_fd (int fd) {
        e = list_next (e))
     {
 			struct openfile *of = list_entry (e, struct openfile, openelem);
-			if ( of->fd = fd ){
+			if ( of->fd == fd ){
 				lock_release (&t->open_list_lock);
 				return of;
 			}
@@ -231,10 +232,12 @@ exit (int status)
 static pid_t
 exec (const char *_cmd_line)
 {
-	if (_cmd_line >= PHYS_BASE) {
+	if ((void *)_cmd_line >= PHYS_BASE) {
 		exit (-1);
 	}
 	char *cmd_line = (char *) palloc_get_page (0);
+	if (cmd_line==NULL)
+		return -1;
 	strlbond (cmd_line, _cmd_line, PGSIZE);
 	pid_t pid = (pid_t) process_execute (cmd_line);
 	palloc_free_page (cmd_line);
@@ -251,11 +254,13 @@ wait (pid_t pid)
 static bool
 create (const char *_file, unsigned initial_size)
 {
-	if (_file >= PHYS_BASE)
+	if ((void *)_file >= PHYS_BASE)
 		exit (-1);
 
 	bool success = false;
 	char *file = (char *) palloc_get_page (0);
+	if (file==NULL)
+		return false;
 	strlbond (file, _file, PGSIZE);
 
 	lock_acquire (&filesys_lock);
@@ -269,11 +274,13 @@ create (const char *_file, unsigned initial_size)
 static bool
 remove (const char *_file)
 {
-	if (_file >= PHYS_BASE)
+	if ((void *)_file >= PHYS_BASE)
 		exit (-1);
 
 	bool success = false;
 	char *file = (char *) palloc_get_page (0);
+	if (file==NULL)
+		return false;
 	strlbond (file, _file, PGSIZE);
 
 	lock_acquire (&filesys_lock);
@@ -287,13 +294,15 @@ remove (const char *_file)
 static int
 open (const char *_file)
 {
-	if (_file >= PHYS_BASE)
+	if ((void *)_file >= PHYS_BASE)
 		exit (-1);
 
 	struct thread *t = thread_current ();
 	struct file *f;
 
 	char *file = (char *) palloc_get_page (0);
+	if (file==NULL)
+		return -1;
 	strlbond (file, _file, PGSIZE);
 
 	lock_acquire (&filesys_lock);
@@ -342,7 +351,7 @@ read (int fd, void *_buffer, unsigned size)
 {
 	off_t offset = 0;
 
-	if (_buffer >= PHYS_BASE)
+	if ((void *)_buffer >= PHYS_BASE)
 		exit (-1);
 
 	struct file *f = get_file_by_fd (fd);
@@ -387,10 +396,12 @@ write (int fd, const void *_buffer, unsigned size)
 {
 	int wrote = 0;
 
-	if (_buffer >= PHYS_BASE)
+	if ((void *)_buffer >= PHYS_BASE)
 		exit (-1);
 
 	char *buffer = (char *) palloc_get_page (0);
+	if (buffer==NULL)
+		return -1;
 	while (size>0){
 		strlbond (buffer, _buffer, MIN(size+1, PGSIZE));
 

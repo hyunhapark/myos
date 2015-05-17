@@ -129,6 +129,7 @@ struct thread
 		struct semaphore loaded;
 		bool load_failed;
 		struct file *my_binary;
+		bool is_process;
 #endif
 
     /* Owned by thread.c. */
