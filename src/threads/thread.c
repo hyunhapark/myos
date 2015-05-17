@@ -605,7 +605,9 @@ init_thread (struct thread *t, const char *name, int priority, int nice)
 	t->load_failed = false;
 	t->my_binary=NULL;
 	list_init (&t->open_list);
+	lock_init (&t->open_list_lock);
 	sema_init (&t->loaded, 0);
+	lock_init (&t->fdlock);
 #endif
 
   list_init (&t->hold_list);

@@ -123,7 +123,9 @@ struct thread
 		int exit_status;
 		struct semaphore exit_wait_sema;
 		int lastfd;
+		struct lock fdlock;
 		struct list open_list;
+		struct lock open_list_lock;
 		struct semaphore loaded;
 		bool load_failed;
 		struct file *my_binary;

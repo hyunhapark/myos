@@ -19,6 +19,8 @@
 #include "threads/vaddr.h"
 #include "userprog/syscall.h"
 
+extern struct lock filesys_lock;
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, int arg_len, int argc);
 
@@ -133,7 +135,6 @@ process_wait (tid_t child_tid)
 {
 	int status = 0;
 
-	enum intr_level old_level = intr_disable ();
 
 	struct thread *t = get_thread_by_tid (child_tid);
 	if (t==NULL) {
@@ -148,7 +149,6 @@ process_wait (tid_t child_tid)
 	/* Free memory of PCB. */
 	palloc_free_page (t);
 
-	intr_set_level (old_level);
 
   return status;
 }
@@ -283,6 +283,7 @@ load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, i
     goto done;
   process_activate ();
 
+	lock_acquire (&filesys_lock);
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
@@ -379,6 +380,7 @@ load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, i
   success = true;
 
  done:
+	lock_release (&filesys_lock);
   /* We arrive here whether the load is successful or not. */
   return success;
 }

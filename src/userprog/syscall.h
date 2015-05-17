@@ -29,6 +29,8 @@ struct openfile{
 };
 
 void syscall_init (void);
+struct file *get_file_by_fd (int);
+struct openfile *get_openfile_by_fd (int);
 void exit (int status);
 
 #endif /* userprog/syscall.h */
