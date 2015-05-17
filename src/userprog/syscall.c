@@ -17,7 +17,8 @@
 #define MIN(x, y)	(((x)>(y))?(y):(x))
 #define MAX(x, y)	(((x)>(y))?(x):(y))
 
-/* TODO comment. */
+/* Lock of whole file system. [TODO]Should be divided into 
+	 multiple small locks later. */
 struct lock filesys_lock;
 
 static void syscall_handler (struct intr_frame *);
@@ -217,7 +218,6 @@ exit (int status)
 	if (f!=NULL){
 		if (f->deny_write)
 			file_allow_write (f);
-		//TODO
 		lock_acquire (&filesys_lock);
 		file_close (f);
 		lock_release (&filesys_lock);
@@ -302,17 +302,13 @@ open (const char *_file)
 
 	palloc_free_page (file);
 
-	if (f==NULL) { /* File open fail. */
-		//lock_release (&filesys_lock);
+	if (f==NULL) /* File open fail. */
 		return -1;
-	}
 
 	/* Add (fd, f) mapping into thread's open_list */
 	struct openfile *of = (struct openfile *) calloc (1, sizeof(struct openfile));
-	if (of==NULL) {
-		//lock_release (&filesys_lock);
+	if (of==NULL)
 		return -1;
-	}
 	of->fd = get_next_fd(t);
 	of->f = f;
 	lock_acquire (&t->open_list_lock);
@@ -349,27 +345,26 @@ read (int fd, void *_buffer, unsigned size)
 	if (_buffer >= PHYS_BASE)
 		exit (-1);
 
+	struct file *f = get_file_by_fd (fd);
+	if (f==NULL)
+		return -1;
+
 	char *buffer = (char *) user_vtop (_buffer);
 	uintptr_t remain = (uintptr_t) pg_round_down(buffer+PGSIZE) - (uintptr_t) buffer;
 
 	while (size>0){
 		if (fd == STDIN_FILENO){
 			off_t st_offset = offset;
-			for (; size>0 && (pg_ofs(_buffer+offset)!=0 || offset==st_offset); offset++){
+			for (; size>0 && (pg_ofs(buffer+offset)!=0 || offset==st_offset);
+					offset++, size--) {
 				buffer[offset] = input_getc ();
-				offset++;
-				size--;
 			}
 			if(size>0){
 				buffer = (char *) (user_vtop (_buffer+offset) - offset);
 			}
 		} else {
-			struct file *f = get_file_by_fd (fd);
-			if (f==NULL)
-				return -1;
-
 			lock_acquire (&filesys_lock);
-			off_t read_now = file_read (f, buffer, (off_t) MIN(size, remain));
+			off_t read_now = file_read (f, buffer+offset, (off_t) MIN(size, remain));
 			lock_release (&filesys_lock);
 
 			if (read_now==0)
@@ -379,7 +374,8 @@ read (int fd, void *_buffer, unsigned size)
 			size -= (unsigned) read_now;
 			if(size>0){
 				buffer = (char *) (user_vtop (_buffer+offset) - offset);
-				remain = PGSIZE-pg_ofs(_buffer+offset);
+				remain = PGSIZE-pg_ofs(buffer+offset);
+				ASSERT (remain == PGSIZE);
 			}
 		}
 	}
@@ -398,34 +394,36 @@ write (int fd, const void *_buffer, unsigned size)
 	while (size>0){
 		strlbond (buffer, _buffer, MIN(size+1, PGSIZE));
 
-		if (fd == STDOUT_FILENO){
-			putbuf (buffer, MIN(size, PGSIZE-1));
-			wrote += MIN(size, PGSIZE-1);
+		if (fd == STDOUT_FILENO)
+			{
+				putbuf (buffer, MIN(size, PGSIZE-1));
+				wrote += MIN(size, PGSIZE-1);
 
-			barrier ();
-			size -= MIN(size, PGSIZE-1);
+				barrier ();
+				size -= MIN(size, PGSIZE-1);
+			}
+		else
+			{
+				lock_acquire (&filesys_lock);
+				struct file *f = get_file_by_fd (fd);
+				lock_release (&filesys_lock);
 
-		} else {
-			lock_acquire (&filesys_lock);
-			struct file *f = get_file_by_fd (fd);
-			lock_release (&filesys_lock);
+				if (f==NULL)
+					return -1;
+				if (f->deny_write)
+					return 0;
 
-			if (f==NULL)
-				return -1;
-			if (f->deny_write)
-				return 0;
+				lock_acquire (&filesys_lock);
+				off_t wrote_now = file_write (f, buffer, (off_t) MIN(size, PGSIZE-1));
+				lock_release (&filesys_lock);
 
-			lock_acquire (&filesys_lock);
-			off_t wrote_now = file_write (f, buffer, (off_t) MIN(size, PGSIZE-1));
-			lock_release (&filesys_lock);
+				barrier ();
+				if (wrote_now==0)
+					return wrote;
 
-			barrier ();
-			if (wrote_now==0)
-				return wrote;
-
-			wrote += (int) wrote_now;
-			size -= (unsigned) wrote_now;
-		}
+				wrote += (int) wrote_now;
+				size -= (unsigned) wrote_now;
+			}
 	}
 	palloc_free_page (buffer);
 
