@@ -202,9 +202,9 @@ exit (int status)
 	struct thread *cur = thread_current ();
 	struct file *f = cur->my_binary;
 	if (f!=NULL){
+		lock_acquire (&filesys_lock);
 		if (f->deny_write)
 			file_allow_write (f);
-		lock_acquire (&filesys_lock);
 		file_close (f);
 		lock_release (&filesys_lock);
 	}
@@ -223,7 +223,7 @@ exec (const char *_cmd_line)
 	char *cmd_line = (char *) palloc_get_page (0);
 	if (cmd_line==NULL)
 		return -1;
-	strlbond (cmd_line, _cmd_line, PGSIZE);
+	strlbond (cmd_line, _cmd_line, (size_t)PGSIZE);
 	pid_t pid = (pid_t) process_execute (cmd_line);
 	palloc_free_page (cmd_line);
 
@@ -246,7 +246,7 @@ create (const char *_file, unsigned initial_size)
 	char *file = (char *) palloc_get_page (0);
 	if (file==NULL)
 		return false;
-	strlbond (file, _file, PGSIZE);
+	strlbond (file, _file, (size_t)PGSIZE);
 
 	lock_acquire (&filesys_lock);
 	success = filesys_create (file, initial_size);
@@ -266,7 +266,7 @@ remove (const char *_file)
 	char *file = (char *) palloc_get_page (0);
 	if (file==NULL)
 		return false;
-	strlbond (file, _file, PGSIZE);
+	strlbond (file, _file, (size_t)PGSIZE);
 
 	lock_acquire (&filesys_lock);
 	success = filesys_remove (file);
@@ -288,7 +288,7 @@ open (const char *_file)
 	char *file = (char *) palloc_get_page (0);
 	if (file==NULL)
 		return -1;
-	strlbond (file, _file, PGSIZE);
+	strlbond (file, _file, (size_t)PGSIZE);
 
 	lock_acquire (&filesys_lock);
 	f = filesys_open (file);
@@ -344,6 +344,7 @@ read (int fd, void *_buffer, unsigned size)
 	char *buffer = (char *) user_vtop (_buffer);
 	uintptr_t remain = (uintptr_t) pg_round_down(buffer+PGSIZE) - (uintptr_t) buffer;
 
+	lock_acquire (&filesys_lock);
 	if (fd == STDIN_FILENO)
 		{
 			while (size>0){
@@ -352,14 +353,12 @@ read (int fd, void *_buffer, unsigned size)
 						offset++, size--) {
 					buffer[offset] = input_getc ();
 				}
-				if(size>0){
+				if(size>0)
 					buffer = (char *) (user_vtop (_buffer+offset) - offset);
-				}
 			}
 		}
 	else
 		{
-			lock_acquire (&filesys_lock);
 			struct file *f = get_file_by_fd (fd);
 			if (f==NULL) {
 				lock_release (&filesys_lock);
@@ -382,66 +381,68 @@ read (int fd, void *_buffer, unsigned size)
 					ASSERT (remain == PGSIZE);
 				}
 			}
-			lock_release (&filesys_lock);
 		}
+	lock_release (&filesys_lock);
   return  (int) offset;
 }
 
 static int
 write (int fd, const void *_buffer, unsigned size)
 {
-	int wrote = 0;
+	//int wrote = 0;
+	off_t offset = 0;
 
 	if ((void *)(_buffer+size-1) >= PHYS_BASE)
 		exit (-1);
 
-	char *buffer = (char *) malloc (PGSIZE+1);
+	char *buffer = (char *) user_vtop (_buffer);
 	if (buffer==NULL)
-		return -1;
+		exit (-1);
+	uintptr_t remain = (uintptr_t) pg_round_down(buffer+PGSIZE) - (uintptr_t) buffer;
 
+	lock_acquire (&filesys_lock);
 	if (fd == STDOUT_FILENO)
 		{
-			lock_acquire (&filesys_lock);
 			while (size>0){
-				strlbond (buffer, _buffer+wrote, MIN(size+1, PGSIZE+1));
-
-				putbuf (buffer, MIN(size, PGSIZE));
-				wrote += MIN(size, PGSIZE);
-
-				barrier ();
-				size -= MIN(size, PGSIZE);
+				off_t st_offset = offset;
+				for (; size>0 && (pg_ofs(buffer+offset)!=0 || offset==st_offset);
+						offset++, size--) {
+					putbuf ((const char *)buffer+offset, (size_t)1);
+				}
+				if(size>0)
+					buffer = (char *) (user_vtop (_buffer+offset) - offset);
 			}
-			lock_release (&filesys_lock);
 		}
 	else
 		{
 			struct file *f = get_file_by_fd (fd);
 			if (f==NULL) {
-				free (buffer);
+				lock_release (&filesys_lock);
 				return -1;
 			} else if (f->deny_write) {
-				free (buffer);
+				lock_release (&filesys_lock);
 				return 0;
 			}
 
-			/*TODO - lock all and not use strlbond */
-			while (size>0){
-				strlbond (buffer, _buffer+wrote, MIN(size+1, PGSIZE+1));
+			while (size>0) {
+				off_t wrote_now = file_write (f, buffer+offset, (off_t) MIN(size, remain));
 
-				lock_acquire (&filesys_lock);
-				off_t wrote_now = file_write (f, buffer, (off_t) MIN(size, PGSIZE));
-				lock_release (&filesys_lock);
+				if (wrote_now==0) {
+					lock_release (&filesys_lock);
+					return  (int) offset;
+				}
 
-				barrier ();
-				if (wrote_now==0)
-					break;
-
-				wrote += (int) wrote_now;
+				offset += (int) wrote_now;
 				size -= (unsigned) wrote_now;
+				if(size>0) {
+					buffer = (char *) (user_vtop (_buffer+offset) - offset);
+					remain = PGSIZE-pg_ofs(buffer+offset);
+					ASSERT (remain == PGSIZE);
+				}
 			}
 		}
-	free (buffer);
-  return wrote;
+	lock_release (&filesys_lock);
+  return  (int) offset;
 }
 
 static void

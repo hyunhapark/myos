@@ -18,6 +18,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/syscall.h"
+#include "threads/malloc.h"
 
 extern struct lock filesys_lock;
 
@@ -134,18 +135,20 @@ process_wait (tid_t child_tid)
 {
 	int status = 0;
 
-	struct thread *t = get_thread_by_tid (child_tid);
-	if (t==NULL) {
+	struct thread *child = get_thread_by_tid (child_tid);
+	if (child==NULL) {
 		return -1;
 	}
-	sema_down (&t->exit_wait_sema);
-	status = t->exit_status;
+	sema_down (&child->exit_wait_sema);
+	status = child->exit_status;
 
 	/* Remove process from all_list. */
-	list_remove (&t->allelem);
+	enum intr_level old_level = intr_disable();
+	list_remove (&child->allelem);
+	intr_set_level (old_level);
 
 	/* Free memory of PCB. */
-	palloc_free_page (t);
+	palloc_free_page (child);
 
   return status;
 }
@@ -156,6 +159,17 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
+
+	struct list_elem *e;
+	for (e = list_begin (&cur->open_list); e != list_end (&cur->open_list);)
+		{
+			struct openfile *of = list_entry (e, struct openfile, openelem);
+			if (of->f != NULL) {
+				file_close (of->f);
+			}
+			e = list_remove (&of->openelem);
+			free (of);
+		}
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -274,13 +288,14 @@ load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, i
   bool success = false;
   int i;
 
+	lock_acquire (&filesys_lock);
+
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
 
-	lock_acquire (&filesys_lock);
   /* Open executable file. */
   file = filesys_open (file_name);
   if (file == NULL) 
