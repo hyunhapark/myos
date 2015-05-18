@@ -156,22 +156,16 @@ strlbond (char *dst, const char *src, size_t size){
 /* Search file that has opened with fd in thread's open_list. */
 struct file *
 get_file_by_fd (int fd) {
-	struct file *f;
 	struct thread *t = thread_current ();
 	struct list_elem *e;
 
-	lock_acquire (&t->open_list_lock);
   for (e = list_begin (&t->open_list); e != list_end (&t->open_list);
        e = list_next (e))
     {
 			struct openfile *of = list_entry (e, struct openfile, openelem);
-			if ( of->fd == fd ){
-				f = of->f;
-				lock_release (&t->open_list_lock);
-				return f;
-			}
+			if ( of->fd == fd )
+				return of->f;
 		}
-	lock_release (&t->open_list_lock);
 	return NULL;
 }
 
@@ -181,28 +175,19 @@ get_openfile_by_fd (int fd) {
 	struct thread *t = thread_current ();
 	struct list_elem *e;
 
-	lock_acquire (&t->open_list_lock);
   for (e = list_begin (&t->open_list); e != list_end (&t->open_list);
        e = list_next (e))
     {
 			struct openfile *of = list_entry (e, struct openfile, openelem);
-			if ( of->fd == fd ){
-				lock_release (&t->open_list_lock);
+			if ( of->fd == fd )
 				return of;
-			}
 		}
-	lock_release (&t->open_list_lock);
 	return NULL;
 }
 
 static int
 get_next_fd (struct thread *t) {
-	int fd = 0;
-	lock_acquire (&t->fdlock);
-	fd = (++t->lastfd);
-	lock_release (&t->fdlock);
-
-	return fd;
+	return (++t->lastfd);
 }
 
 static void
@@ -307,23 +292,25 @@ open (const char *_file)
 
 	lock_acquire (&filesys_lock);
 	f = filesys_open (file);
-	lock_release (&filesys_lock);
 
 	palloc_free_page (file);
 
-	if (f==NULL) /* File open fail. */
+	if (f==NULL) { /* File open fail. */
+		lock_release (&filesys_lock);
 		return -1;
+	}
 
 	/* Add (fd, f) mapping into thread's open_list */
 	struct openfile *of = (struct openfile *) calloc (1, sizeof(struct openfile));
-	if (of==NULL)
+	if (of==NULL) {
+		lock_release (&filesys_lock);
 		return -1;
+	}
 	of->fd = get_next_fd(t);
 	of->f = f;
-	lock_acquire (&t->open_list_lock);
 	list_push_back (&t->open_list, &of->openelem);
-	lock_release (&t->open_list_lock);
 
+	lock_release (&filesys_lock);
   return of->fd;
 }
 
@@ -351,43 +338,52 @@ read (int fd, void *_buffer, unsigned size)
 {
 	off_t offset = 0;
 
-	if ((void *)_buffer >= PHYS_BASE)
+	if ((void *)(_buffer+size-1) >= PHYS_BASE)
 		exit (-1);
-
-	struct file *f = get_file_by_fd (fd);
-	if (f==NULL)
-		return -1;
 
 	char *buffer = (char *) user_vtop (_buffer);
 	uintptr_t remain = (uintptr_t) pg_round_down(buffer+PGSIZE) - (uintptr_t) buffer;
 
-	while (size>0){
-		if (fd == STDIN_FILENO){
-			off_t st_offset = offset;
-			for (; size>0 && (pg_ofs(buffer+offset)!=0 || offset==st_offset);
-					offset++, size--) {
-				buffer[offset] = input_getc ();
-			}
-			if(size>0){
-				buffer = (char *) (user_vtop (_buffer+offset) - offset);
-			}
-		} else {
-			lock_acquire (&filesys_lock);
-			off_t read_now = file_read (f, buffer+offset, (off_t) MIN(size, remain));
-			lock_release (&filesys_lock);
-
-			if (read_now==0)
-				return  (int) offset;
-
-			offset += (int) read_now;
-			size -= (unsigned) read_now;
-			if(size>0){
-				buffer = (char *) (user_vtop (_buffer+offset) - offset);
-				remain = PGSIZE-pg_ofs(buffer+offset);
-				ASSERT (remain == PGSIZE);
+	if (fd == STDIN_FILENO)
+		{
+			while (size>0){
+				off_t st_offset = offset;
+				for (; size>0 && (pg_ofs(buffer+offset)!=0 || offset==st_offset);
+						offset++, size--) {
+					buffer[offset] = input_getc ();
+				}
+				if(size>0){
+					buffer = (char *) (user_vtop (_buffer+offset) - offset);
+				}
 			}
 		}
-	}
+	else
+		{
+			lock_acquire (&filesys_lock);
+			struct file *f = get_file_by_fd (fd);
+			if (f==NULL) {
+				lock_release (&filesys_lock);
+				return -1;
+			}
+
+			while (size>0) {
+				off_t read_now = file_read (f, buffer+offset, (off_t) MIN(size, remain));
+
+				if (read_now==0) {
+					lock_release (&filesys_lock);
+					return  (int) offset;
+				}
+
+				offset += (int) read_now;
+				size -= (unsigned) read_now;
+				if(size>0) {
+					buffer = (char *) (user_vtop (_buffer+offset) - offset);
+					remain = PGSIZE-pg_ofs(buffer+offset);
+					ASSERT (remain == PGSIZE);
+				}
+			}
+			lock_release (&filesys_lock);
+		}
   return  (int) offset;
 }
 
@@ -396,48 +392,55 @@ write (int fd, const void *_buffer, unsigned size)
 {
 	int wrote = 0;
 
-	if ((void *)_buffer >= PHYS_BASE)
+	if ((void *)(_buffer+size-1) >= PHYS_BASE)
 		exit (-1);
 
-	char *buffer = (char *) palloc_get_page (0);
+	char *buffer = (char *) malloc (PGSIZE+1);
 	if (buffer==NULL)
 		return -1;
-	while (size>0){
-		strlbond (buffer, _buffer, MIN(size+1, PGSIZE));
 
-		if (fd == STDOUT_FILENO)
-			{
-				putbuf (buffer, MIN(size, PGSIZE-1));
-				wrote += MIN(size, PGSIZE-1);
+	if (fd == STDOUT_FILENO)
+		{
+			lock_acquire (&filesys_lock);
+			while (size>0){
+				strlbond (buffer, _buffer+wrote, MIN(size+1, PGSIZE+1));
+
+				putbuf (buffer, MIN(size, PGSIZE));
+				wrote += MIN(size, PGSIZE);
 
 				barrier ();
-				size -= MIN(size, PGSIZE-1);
+				size -= MIN(size, PGSIZE);
 			}
-		else
-			{
-				lock_acquire (&filesys_lock);
-				struct file *f = get_file_by_fd (fd);
-				lock_release (&filesys_lock);
+			lock_release (&filesys_lock);
+		}
+	else
+		{
+			struct file *f = get_file_by_fd (fd);
+			if (f==NULL) {
+				free (buffer);
+				return -1;
+			} else if (f->deny_write) {
+				free (buffer);
+				return 0;
+			}
 
-				if (f==NULL)
-					return -1;
-				if (f->deny_write)
-					return 0;
+			/*TODO - lock all and not use strlbond */
+			while (size>0){
+				strlbond (buffer, _buffer+wrote, MIN(size+1, PGSIZE+1));
 
 				lock_acquire (&filesys_lock);
-				off_t wrote_now = file_write (f, buffer, (off_t) MIN(size, PGSIZE-1));
+				off_t wrote_now = file_write (f, buffer, (off_t) MIN(size, PGSIZE));
 				lock_release (&filesys_lock);
 
 				barrier ();
 				if (wrote_now==0)
-					return wrote;
+					break;
 
 				wrote += (int) wrote_now;
 				size -= (unsigned) wrote_now;
 			}
-	}
-	palloc_free_page (buffer);
-
+		}
+	free (buffer);
   return wrote;
 }
 
@@ -466,7 +469,6 @@ tell (int fd)
 	}
 	unsigned ret = file_tell (f);
 	lock_release (&filesys_lock);
-
 	return ret;
 }
 
