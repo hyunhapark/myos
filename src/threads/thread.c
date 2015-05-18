@@ -318,6 +318,9 @@ thread_current (void)
      have overflowed its stack.  Each thread has less than 4 kB
      of stack, so a few big automatic arrays or moderate
      recursion can cause stack overflow. */
+	if (!is_thread (t)){ // XXX - DEBUG
+		asm volatile ("nop");
+	}
   ASSERT (is_thread (t));
   ASSERT (t->status == THREAD_RUNNING);
 	intr_set_level (old_level);
@@ -356,6 +359,9 @@ thread_exit (void)
 	if(t->rcc)
 		list_remove (&t->rccelem);	
   t->status = THREAD_DYING;
+#ifdef USERPROG
+	sema_up (&t->exit_wait_sema);
+#endif
   schedule ();
   NOT_REACHED ();
 }
@@ -695,14 +701,14 @@ thread_schedule_tail (struct thread *prev)
      pull out the rug under itself.  (We don't free
      initial_thread because its memory was not obtained via
      palloc().) */
-  if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread) 
+  if (prev != NULL && prev->status == THREAD_DYING && prev != initial_thread && prev != idle_thread) 
     {
       ASSERT (prev != cur);
 #ifdef USERPROG
 			if(prev->is_process) {
 				/* We don't free the TCB yet. Because we have to use exit_status 
 					 value in wait(). */
-				sema_up (&prev->exit_wait_sema);
+				//sema_up (&prev->exit_wait_sema);
 			} else {
 				palloc_free_page (prev);
 			}

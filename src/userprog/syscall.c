@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <syscall-nr.h>
+#include <debug.h>
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/interrupt.h"
@@ -202,11 +203,13 @@ exit (int status)
 	struct thread *cur = thread_current ();
 	struct file *f = cur->my_binary;
 	if (f!=NULL){
-		lock_acquire (&filesys_lock);
+		//lock_acquire (&filesys_lock);
+		enum intr_level old_level = intr_disable ();
 		if (f->deny_write)
 			file_allow_write (f);
 		file_close (f);
-		lock_release (&filesys_lock);
+		//lock_release (&filesys_lock);
+		intr_set_level (old_level);
 	}
 
 	cur->exit_status = status;
