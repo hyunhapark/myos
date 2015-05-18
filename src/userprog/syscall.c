@@ -345,6 +345,8 @@ read (int fd, void *_buffer, unsigned size)
 		exit (-1);
 
 	char *buffer = (char *) user_vtop (_buffer);
+	if (buffer==NULL)
+		exit (-1);
 	uintptr_t remain = (uintptr_t) pg_round_down(buffer+PGSIZE) - (uintptr_t) buffer;
 
 	lock_acquire (&filesys_lock);
