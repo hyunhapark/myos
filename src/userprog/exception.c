@@ -87,9 +87,6 @@ kill (struct intr_frame *f)
     case SEL_UCSEG:
       /* User's code segment, so it's a user exception, as we
          expected.  Kill the user process.  */
-      //printf ("%s: dying due to interrupt %#04x (%s).\n",
-      //        thread_name (), f->vec_no, intr_name (f->vec_no));
-      //intr_dump_frame (f);
 			exit (-1);
 
     case SEL_KCSEG:
@@ -149,11 +146,13 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-	/* Fault of user process by system call. */
+#ifdef USERPROG
+	/* Check if it is fault of user process by system call. */
 	if (intr_syscall_context ()) {
-		exit (-1);
+		exit (-1); /* Just kill the user process. */
 		return;
 	}
+#endif
 
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to

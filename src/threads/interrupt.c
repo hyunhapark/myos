@@ -45,7 +45,6 @@ static unsigned int unexpected_cnt[INTR_CNT];
    request that a new process be scheduled just before the
    interrupt returns. */
 static bool in_external_intr;   /* Are we processing an external interrupt? */
-static bool in_syscall;         /* Are we processing an system call? */
 static bool yield_on_return;    /* Should we yield on interrupt return? */
 
 /* Programmable Interrupt Controller helpers. */
@@ -207,13 +206,15 @@ intr_register_int (uint8_t vec_no, int dpl, enum intr_level level,
   register_handler (vec_no, dpl, level, handler, name);
 }
 
+#ifdef USERPROG
 /* Returns true during processing of an system call
    and false at all other times. */
 bool
 intr_syscall_context (void) 
 {
-  return in_syscall;
+  return thread_current ()->in_syscall;
 }
+#endif
 
 /* Returns true during processing of an external interrupt
    and false at all other times. */
@@ -369,10 +370,12 @@ intr_handler (struct intr_frame *frame)
       in_external_intr = true;
       yield_on_return = false;
     }
+#ifdef USERPROG
 	else if (frame->vec_no == 0x30)
 		{
-      in_syscall = true;
+			thread_current ()->in_syscall = true;
 		}
+#endif
 
   /* Invoke the interrupt's handler. */
   handler = intr_handlers[frame->vec_no];
@@ -399,10 +402,12 @@ intr_handler (struct intr_frame *frame)
       if (yield_on_return) 
         thread_yield (); 
     }
+#ifdef USERPROG
 	else if (frame->vec_no == 0x30)
 		{
-      in_syscall = false;
+			thread_current ()->in_syscall = false;
 		}
+#endif
 }
 
 /* Handles an unexpected interrupt with interrupt frame F.  An

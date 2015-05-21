@@ -121,6 +121,7 @@ syscall_handler (struct intr_frame *f)
 	}
 }
 
+/* Checks if a string is over page boundary. */
 static bool
 str_over_boundary (const char *s){
 	char *page = (char *) pg_round_down (s);
@@ -186,29 +187,33 @@ get_openfile_by_fd (int fd) {
 	return NULL;
 }
 
+/* Allocates and returns a new file descriptor. */
 static int
 get_next_fd (struct thread *t) {
 	return (++t->lastfd);
 }
 
+/* System call `halt'. */
 static void
 halt (void) 
 {
   shutdown_power_off ();
 }
 
+/* System call `exit'. */
 void
 exit (int status)
 {
 	struct thread *cur = thread_current ();
 	struct file *f = cur->my_binary;
+
 	if (f!=NULL){
-		//lock_acquire (&filesys_lock);
 		enum intr_level old_level = intr_disable ();
+
 		if (f->deny_write)
 			file_allow_write (f);
 		file_close (f);
-		//lock_release (&filesys_lock);
+
 		intr_set_level (old_level);
 	}
 
@@ -217,12 +222,12 @@ exit (int status)
 	thread_exit ();
 }
 
+/* System call `exec'. */
 static pid_t
 exec (const char *_cmd_line)
 {
-	if ((void *)_cmd_line >= PHYS_BASE) {
+	if ((void *)_cmd_line >= PHYS_BASE)
 		exit (-1);
-	}
 	char *cmd_line = (char *) palloc_get_page (0);
 	if (cmd_line==NULL)
 		return -1;
@@ -233,12 +238,14 @@ exec (const char *_cmd_line)
 	return pid;
 }
 
+/* System call `wait'. */
 static int
 wait (pid_t pid)
 {
 	return process_wait((tid_t) pid);
 }
 
+/* System call `create'. */
 static bool
 create (const char *_file, unsigned initial_size)
 {
@@ -259,6 +266,7 @@ create (const char *_file, unsigned initial_size)
   return success;
 }
 
+/* System call `remove'. */
 static bool
 remove (const char *_file)
 {
@@ -279,6 +287,7 @@ remove (const char *_file)
   return success;
 }
 
+/* System call `open'. */
 static int
 open (const char *_file)
 {
@@ -317,6 +326,7 @@ open (const char *_file)
   return of->fd;
 }
 
+/* System call `filesize'. */
 static int
 filesize (int fd) 
 {
@@ -336,6 +346,7 @@ filesize (int fd)
   return len;
 }
 
+/* System call `read'. */
 static int
 read (int fd, void *_buffer, unsigned size)
 {
@@ -391,10 +402,10 @@ read (int fd, void *_buffer, unsigned size)
   return  (int) offset;
 }
 
+/* System call `write'. */
 static int
 write (int fd, const void *_buffer, unsigned size)
 {
-	//int wrote = 0;
 	off_t offset = 0;
 
 	if ((void *)(_buffer+size-1) >= PHYS_BASE)
@@ -450,6 +461,7 @@ write (int fd, const void *_buffer, unsigned size)
   return  (int) offset;
 }
 
+/* System call `seek'. */
 static void
 seek (int fd, unsigned position) 
 {
@@ -464,6 +476,7 @@ seek (int fd, unsigned position)
 	lock_release (&filesys_lock);
 }
 
+/* System call `tell'. */
 static unsigned
 tell (int fd) 
 {
@@ -478,6 +491,7 @@ tell (int fd)
 	return ret;
 }
 
+/* System call `close'. */
 static void
 close (int fd)
 {
@@ -497,6 +511,7 @@ close (int fd)
 
 /* ----- til here, enough for project2 ----- */
 
+/* System call `mmap'. */
 static mapid_t
 mmap (int fd UNUSED, void *_addr UNUSED)
 {
@@ -504,6 +519,7 @@ mmap (int fd UNUSED, void *_addr UNUSED)
   return 0;
 }
 
+/* System call `munmap'. */
 static void
 munmap (mapid_t mapid UNUSED)
 {
@@ -512,6 +528,7 @@ munmap (mapid_t mapid UNUSED)
 
 /* ----- til here, enough for project3 ----- */
 
+/* System call `chdir'. */
 static bool
 chdir (const char *_dir UNUSED)
 {
@@ -519,6 +536,7 @@ chdir (const char *_dir UNUSED)
   return false;
 }
 
+/* System call `mkdir'. */
 static bool
 mkdir (const char *_dir UNUSED)
 {
@@ -526,6 +544,7 @@ mkdir (const char *_dir UNUSED)
   return false;
 }
 
+/* System call `readdir'. */
 static bool
 readdir (int fd UNUSED, char name[READDIR_MAX_LEN + 1] UNUSED) 
 {
@@ -533,6 +552,7 @@ readdir (int fd UNUSED, char name[READDIR_MAX_LEN + 1] UNUSED)
   return false;
 }
 
+/* System call `isdir'. */
 static bool
 isdir (int fd UNUSED) 
 {
@@ -540,6 +560,7 @@ isdir (int fd UNUSED)
   return false;
 }
 
+/* System call `inumber'. */
 static int
 inumber (int fd UNUSED) 
 {

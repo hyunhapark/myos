@@ -120,14 +120,15 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-		int exit_status;
-		struct semaphore exit_wait_sema;
-		int lastfd;
-		struct list open_list;
-		struct semaphore loaded;
-		bool load_failed;
-		struct file *my_binary;
-		bool is_process;
+		int exit_status;                    /* Saved return value(main()) of this process. */
+		struct semaphore exit_wait_sema;    /* For parent to wait this thread. */
+		int lastfd;                         /* Last value of allocated file descriptor. */
+		struct list open_list;              /* List of opend files. */
+		struct semaphore loaded;            /* For parent to wait until finish of loading. */
+		bool load_failed;                   /* Tells to parent whether loading is failed. */
+		struct file *my_binary;             /* The binary excutable file of this process. */
+		bool is_process;                    /* Whether if it is a user process. */
+		bool in_syscall;                    /* Whether if this process called a system call.  */
 #endif
 
     /* Owned by thread.c. */
