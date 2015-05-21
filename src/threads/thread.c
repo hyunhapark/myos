@@ -219,7 +219,11 @@ thread_create (const char *name, int priority,
 	nice = thread_current ()->nice;
   ASSERT (NICE_MIN <= nice && nice <= NICE_MAX);
 
+#ifdef USERPROG
   init_thread (t, name, priority, nice, function==start_process);
+#else
+	init_thread (t, name, priority, nice, false);
+#endif
   tid = t->tid = allocate_tid ();
 
   old_level = intr_disable ();

@@ -514,15 +514,15 @@ setup_stack (void **esp, char *arg_start, int arg_len, int argc)
   uint8_t *kpage;
   bool success = false;
 
-  kpage = palloc_get_multiple (PAL_USER | PAL_ZERO, 2);
+  kpage = palloc_get_multiple (PAL_USER | PAL_ZERO, 1);
   if (kpage != NULL) 
     {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE*2, kpage, true)
-      						&& install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage+PGSIZE, true);
+      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE*1, kpage, true);
+      						//&& install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage+PGSIZE, true);
 
       if (success){
-				memcpy(kpage + PGSIZE*2 - arg_len, arg_start, arg_len);
-				uint32_t *kp = (uint32_t *) ((( ( ((unsigned)kpage+PGSIZE*2) - arg_len )>>2 )-1-argc-2)*4);
+				memcpy(kpage + PGSIZE*1 - arg_len, arg_start, arg_len);
+				uint32_t *kp = (uint32_t *) ((( ( ((unsigned)kpage+PGSIZE*1) - arg_len )>>2 )-1-argc-2)*4);
 				uint32_t *up = (uint32_t *) ((( ( ((unsigned)PHYS_BASE) - arg_len )>>2 )-1-argc)*4);
 				*kp = (uint32_t) argc;
 				*(kp+1) = (uint32_t) up;
@@ -545,7 +545,7 @@ setup_stack (void **esp, char *arg_start, int arg_len, int argc)
 
         *esp = up-3;
 			}else
-        palloc_free_multiple (kpage, 2);
+        palloc_free_multiple (kpage, 1);
     }
   return success;
 }
