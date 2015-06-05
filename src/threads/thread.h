@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include <hash.h>
 #include "threads/fixed-point.h"
 #include "threads/synch.h"
 
@@ -129,6 +130,10 @@ struct thread
 		struct file *my_binary;             /* The binary excutable file of this process. */
 		bool is_process;                    /* Whether if it is a user process. */
 		bool in_syscall;                    /* Whether if this process called a system call.  */
+#endif
+#ifdef VM
+		struct hash spt;                    /* SPT(Supplemental Page Table).
+                                           Implemented by hash table. */
 #endif
 
     /* Owned by thread.c. */

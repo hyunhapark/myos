@@ -6,9 +6,16 @@
 
 /* Number of timer interrupts per second. */
 #define TIMER_FREQ 100              /* Software emulated freq */
-#define TIMER_FREQ_FAKENESS 10			/* REAL_TIMER_FREQ / TIMER_FREQ */
-#define REAL_TIMER_FREQ (TIMER_FREQ*TIMER_FREQ_FAKENESS) /* Real hardware(bochs) freq */
-#define TIMER_FREQ_REDUCE_FACTOR 4     /* For non-MLFQS. Reduce timer by this factor. */
+
+#ifndef FILESYS
+  #define TIMER_FREQ_FAKENESS 10			/* REAL_TIMER_FREQ / TIMER_FREQ */
+  #define REAL_TIMER_FREQ (TIMER_FREQ*TIMER_FREQ_FAKENESS) /* Real hardware(bochs) freq */
+  #define TIMER_FREQ_REDUCE_FACTOR 4     /* For non-MLFQS. Reduce timer by this factor. */
+#else
+  #define TIMER_FREQ_FAKENESS 1
+  #define REAL_TIMER_FREQ TIMER_FREQ
+  #define TIMER_FREQ_REDUCE_FACTOR 1
+#endif
 
 void timer_init (void);
 void timer_calibrate (void);

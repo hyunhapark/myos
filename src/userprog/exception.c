@@ -1,10 +1,16 @@
 #include "userprog/exception.h"
 #include <inttypes.h>
 #include <stdio.h>
+#include <hash.h>
+#include <string.h>
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "userprog/syscall.h"
+#include "devices/block.h"
+#include "threads/vaddr.h"
+#include "vm/page.h"
+#include "vm/frame.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -124,6 +130,11 @@ page_fault (struct intr_frame *f)
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
+#ifdef VM
+	struct spte spte;
+	struct hash_elem *e;
+	struct spte *p;
+#endif
 
   /* Obtain faulting address, the virtual address that was
      accessed to cause the fault.  It may point to code or to
@@ -157,11 +168,79 @@ page_fault (struct intr_frame *f)
   /* To implement virtual memory, delete the rest of the function
      body, and replace it with code that brings in the page to
      which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
+  //printf ("Page fault at %p: %s error %s page in %s context.\n",
+  //        fault_addr,
+  //        not_present ? "not present" : "rights violation",
+  //        write ? "writing" : "reading",
+  //        user ? "user" : "kernel");
+	
+	// TODO : frame_alloc if valid access. else exit(-1);
+  /* TODO : code sharing.
+		 block_sector_t sector_idx = byte_to_sector (inode, offset); */
+#ifdef VM
+	spte.vaddr = pg_round_down (fault_addr);
+	e = hash_find (&thread_current()->spt, &spte.helem);
+	if (e!=NULL) { /* Valid page */
+		p = hash_entry (e, struct spte, helem);
+		if (!p->writable && write) { /* But was write to non-writable page. */
+			exit (-1);
+			return;
+		} else {
+			void *fr=NULL;
+			switch (p->bpage.type) {
+			case BACKING_TYPE_FILE: 
+				fr = frame_alloc (p->vaddr);
+				file_seek (p->bpage.file, p->bpage.file_ofs);
+				if (file_read (p->bpage.file, fr, PGSIZE - p->bpage.zero_bytes) 
+						!= (off_t)(PGSIZE - p->bpage.zero_bytes)) {
+					frame_free (fr);
+					PANIC ("page_fault(): Read binary failed.");
+				}
+				memset (fr + (PGSIZE - p->bpage.zero_bytes), 0, p->bpage.zero_bytes);
+				break;
+			case BACKING_TYPE_SWAP:
+				//TODO
+				PANIC ("page_fault(): 'Swap in' not yet implemented.");
+				break;
+			case BACKING_TYPE_ZERO:
+				fr = frame_alloc(p->vaddr);
+				memset (fr, 0, PGSIZE);
+				break;
+			default: break;
+			}
+			if (fr == NULL) {
+				//TODO
+				PANIC ("page_fault(): frame_alloc returned NULL.");
+			}
+			/* Add the page to the process's address space. */
+			if (!install_page (p->vaddr, fr, p->writable)) 
+				{
+					frame_free (fr);
+					PANIC ("page_fault(): page install failed.");
+				}
+		}
+	}
+#endif
+
   kill (f);
 }
 
+/* Adds a mapping from user virtual address UPAGE to kernel
+   virtual address KPAGE to the page table.
+   If WRITABLE is true, the user process may modify the page;
+   otherwise, it is read-only.
+   UPAGE must not already be mapped.
+   KPAGE should probably be a page obtained from the user pool
+   with palloc_get_page().
+   Returns true on success, false if UPAGE is already mapped or
+   if memory allocation fails. */
+bool
+install_page (void *upage, void *kpage, bool writable)
+{
+  struct thread *t = thread_current ();
+
+  /* Verify that there's not already a page at that virtual
+     address, then map our page there. */
+  return (pagedir_get_page (t->pagedir, upage) == NULL
+          && pagedir_set_page (t->pagedir, upage, kpage, writable));
+}
