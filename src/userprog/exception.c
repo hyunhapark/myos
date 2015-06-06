@@ -157,23 +157,6 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-#ifdef USERPROG
-	/* Check if it is fault of user process by system call. */
-	if (intr_syscall_context ()) {
-		exit (-1); /* Just kill the user process. */
-		return;
-	}
-#endif
-
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  //printf ("Page fault at %p: %s error %s page in %s context.\n",
-  //        fault_addr,
-  //        not_present ? "not present" : "rights violation",
-  //        write ? "writing" : "reading",
-  //        user ? "user" : "kernel");
-	
 	// TODO : frame_alloc if valid access. else exit(-1);
   /* TODO : code sharing.
 		 block_sector_t sector_idx = byte_to_sector (inode, offset); */
@@ -219,6 +202,15 @@ page_fault (struct intr_frame *f)
 					PANIC ("page_fault(): page install failed.");
 				}
 		}
+		return;
+	}
+#endif
+
+#ifdef USERPROG
+	/* Check if it is fault of user process by system call. */
+	if (intr_syscall_context ()) {
+		exit (-1); /* Just kill the user process. */
+		return;
 	}
 #endif
 

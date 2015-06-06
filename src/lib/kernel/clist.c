@@ -116,6 +116,8 @@ clist_push_back (struct clist *cl, struct list_elem *e)
 
 	if (cl->size==0) {
 		cl->hand = e;
+		e->prev = e;
+		e->next = e;
 		cl->size++;
 	} else {
 		ASSERT (cl->hand != NULL);

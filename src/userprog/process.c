@@ -471,8 +471,12 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
 
+#ifdef VM
 	if (file_length (file) < (off_t)(ofs + read_bytes))
 		return false;
+#else
+	file_seek (file, ofs);
+#endif
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -481,11 +485,35 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
+#ifdef VM
       /* Just record that it is valid page to the SPT. */
 			uint8_t segtype = writable ? SEGTYPE_DATA : SEGTYPE_CODE;
-			page_alloc (upage, file, ofs, page_read_bytes, page_zero_bytes, 
-					writable, segtype);
+			if (!page_alloc (upage, file, ofs, page_read_bytes, page_zero_bytes, 
+					writable, segtype)){
+				return false;
+			}
 			ofs += page_read_bytes;
+#else
+			/* Get a page of memory. */
+			uint8_t *kpage = palloc_get_page (PAL_USER);
+			if (kpage == NULL)
+				return false;
+
+			/* Load this page. */
+			if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+				{
+					palloc_free_page (kpage);
+					return false;
+				}
+			memset (kpage + page_read_bytes, 0, page_zero_bytes);
+
+			/* Add the page to the process's address space. */
+			if (!install_page (upage, kpage, writable))
+				{
+					palloc_free_page (kpage);
+					return false;
+				}
+#endif
 
       /* Advance. */
       read_bytes -= page_read_bytes;
@@ -500,47 +528,62 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack (void **esp, char *arg_start, int arg_len, int argc) 
 {
-  uint8_t *kpage, *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
+  uint8_t *kpage;
+	uint8_t *upage = ((uint8_t *) PHYS_BASE) - PGSIZE;
   bool success = false;
 
+#ifdef VM
 	success = page_alloc (upage, NULL, 0, 0, PGSIZE, 
 			true, SEGTYPE_STACK);
+	if (!success)
+		return false;
 	kpage = frame_alloc (upage);
 	memset (kpage, 0, PGSIZE);
+#else
+	kpage = palloc_get_page (PAL_USER | PAL_ZERO);
+#endif
+	if (kpage == NULL)
+		return false;
+
+	// TODO : page_alloc for 8MB sized Stack.
 
 	/* Add the page to the process's address space. */
-	if (!install_page (upage, kpage, true)) 
-		{
-			frame_free (kpage);
-			return false;
-		}
-	
-	// TODO : page_alloc for 8MB sized Stack.
-  if (success){
-		memcpy(kpage + PGSIZE - arg_len, arg_start, arg_len);
-		uint32_t *kp = (uint32_t *) ((( ( ((unsigned)kpage+PGSIZE) - arg_len )>>2 )-1-argc-2)*4);
-		uint32_t *up = (uint32_t *) ((( ( ((unsigned)PHYS_BASE) - arg_len )>>2 )-1-argc)*4);
-		*kp = (uint32_t) argc;
-		*(kp+1) = (uint32_t) up;
-		*(kp+2) = (uint32_t) (up+argc+1);
-		char *p= (char *) *(kp+2);
-		if(*p!=0){
-		}else if(*(p+1)!=0){
-			*(kp+2) = (uint32_t) (p+1);
-		}else if(*(p+2)!=0){
-			*(kp+2) = (uint32_t) (p+2);
-		}else if(*(p+3)!=0){
-			*(kp+2) = (uint32_t) (p+3);
-		}
-		int i;
-		for (i=1;i<argc;i++){
-			char *s = (char *) *(kp+1+i);
-			*(kp+2+i) = (uint32_t) (s+strlen(s)+1);
-		}
-		*(kp+2+argc)= (uint32_t) 0;
+	success = install_page (upage, kpage, true);
 
-    *esp = up-3;
-	}
+  if (success)
+		{
+			memcpy(kpage + PGSIZE - arg_len, arg_start, arg_len);
+			uint32_t *kp = (uint32_t *) ((( ( ((unsigned)kpage+PGSIZE) - arg_len )>>2 )-1-argc-2)*4);
+			uint32_t *up = (uint32_t *) ((( ( ((unsigned)PHYS_BASE) - arg_len )>>2 )-1-argc)*4);
+			*kp = (uint32_t) argc;
+			*(kp+1) = (uint32_t) up;
+			*(kp+2) = (uint32_t) (up+argc+1);
+			char *p= (char *) *(kp+2);
+			if(*p!=0){
+			}else if(*(p+1)!=0){
+				*(kp+2) = (uint32_t) (p+1);
+			}else if(*(p+2)!=0){
+				*(kp+2) = (uint32_t) (p+2);
+			}else if(*(p+3)!=0){
+				*(kp+2) = (uint32_t) (p+3);
+			}
+			int i;
+			for (i=1;i<argc;i++){
+				char *s = (char *) *(kp+1+i);
+			*(kp+2+i) = (uint32_t) (s+strlen(s)+1);
+			}
+			*(kp+2+argc)= (uint32_t) 0;
+
+			*esp = up-3;
+		}
+	else
+		{
+#ifdef VM
+			frame_free (kpage);
+#else
+			palloc_free_page (kpage);
+#endif
+		}
   return success;
 }
 

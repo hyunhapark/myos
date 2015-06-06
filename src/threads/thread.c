@@ -622,7 +622,9 @@ init_thread (struct thread *t, const char *name, int priority, int nice, bool is
 	t->is_process = is_user_process;
 #endif
 #ifdef VM
-	hash_init (&t->spt, page_hash, page_less, NULL);
+	if (is_user_process) {
+		hash_init (&t->spt, page_hash, page_less, NULL);
+	}
 #endif
 
   list_init (&t->hold_list);
