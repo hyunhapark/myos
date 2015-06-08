@@ -43,6 +43,7 @@ bool page_alloc (uint8_t *upage, struct file *backing, off_t ofs,
 
 unsigned page_hash (const struct hash_elem *p_, void *aux);
 bool page_less (const struct hash_elem *a_, const struct hash_elem *b_,
-		void *aux UNUSED);
+		void *aux);
+void page_destructor (struct hash_elem *a, void *aux);
 
 #endif

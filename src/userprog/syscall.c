@@ -19,9 +19,14 @@
 #define MIN(x, y)	(((x)>(y))?(y):(x))
 #define MAX(x, y)	(((x)>(y))?(x):(y))
 
+/* Virtual addr -> de-ref uint32_t. */
+#define VPOP(x) (*((uint32_t *)user_vtop((const void *)(x))))
+
 /* Lock of whole file system. [TODO]Should be divided into 
 	 multiple small locks later. */
 struct lock filesys_lock;
+struct lock filesys_wlock;
+struct lock filesys_rlock;
 
 static void syscall_handler (struct intr_frame *);
 static bool str_over_boundary (const char *);
@@ -58,19 +63,19 @@ syscall_init (void)
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
 	lock_init (&filesys_lock);
+	lock_init (&filesys_wlock);
+	lock_init (&filesys_rlock);
 }
 
 static void
 syscall_handler (struct intr_frame *f) 
 {
-	uint32_t *esp, *kesp = f->esp;
+	uint32_t *esp = f->esp;
 
 	/* Check %esp. */
-	if ((void *)kesp >= PHYS_BASE) exit (-1);
+	if ((void *)esp >= PHYS_BASE) exit (-1);
 	
-	esp = (uint32_t *)user_vtop ((const void *) kesp);
-
-	int syscall_num = *esp;
+	int syscall_num = VPOP(esp);
 
 	/* Check %esp more. */
 	switch(syscall_num) {
@@ -79,37 +84,37 @@ syscall_handler (struct intr_frame *f)
 	case SYS_OPEN: case SYS_FILESIZE: case SYS_TELL: case SYS_CLOSE:
 	case SYS_MUNMAP: case SYS_CHDIR: case SYS_MKDIR: case SYS_ISDIR:
 	case SYS_INUMBER:
-		if ((void *)(kesp+1) >= PHYS_BASE) exit (-1);
+		if ((void *)(esp+1) >= PHYS_BASE) exit (-1);
 		break;
 	/* If argument is two. */
 	case SYS_CREATE: case SYS_SEEK: case SYS_MMAP: case SYS_READDIR:
-		if ((void *)(kesp+2) >= PHYS_BASE) exit (-1);
+		if ((void *)(esp+2) >= PHYS_BASE) exit (-1);
 		break;
 	/* If argument is three. */
 	case SYS_READ: case SYS_WRITE:
-		if ((void *)(kesp+3) >= PHYS_BASE) exit (-1);
+		if ((void *)(esp+3) >= PHYS_BASE) exit (-1);
 		break;
 	}
 
 	switch(syscall_num){
   /* Projects 2 and later. */
 	case SYS_HALT:     /*void*/      halt ();  break;
-	case SYS_EXIT:     /*void*/      exit ((int) *(esp+1));  break;
-	case SYS_EXEC:     f->eax =      exec ((const char *) *(esp+1));  break;
-	case SYS_WAIT:     f->eax =      wait ((pid_t) *(esp+1));  break;
-	case SYS_CREATE:   f->eax =    create ((const char *) *(esp+1), (unsigned) *(esp+2));  break;
-	case SYS_REMOVE:   f->eax =    remove ((const char *) *(esp+1));  break;
-	case SYS_OPEN:     f->eax =      open ((const char *) *(esp+1));  break;
-	case SYS_FILESIZE: f->eax =  filesize ((int) *(esp+1));  break;
-	case SYS_READ:     f->eax =      read ((int) *(esp+1), (void *) *(esp+2), (unsigned) *(esp+3));  break;
-	case SYS_WRITE:    f->eax =     write ((int) *(esp+1), (const void *) *(esp+2), (unsigned) *(esp+3));  break;
-	case SYS_SEEK:     /*void*/      seek ((int) *(esp+1), (unsigned) *(esp+2));  break;
-	case SYS_TELL:     f->eax =      tell ((int) *(esp+1));  break;
-	case SYS_CLOSE:    /*void*/     close ((int) *(esp+1));  break;
+	case SYS_EXIT:     /*void*/      exit ((int) VPOP(esp+1));  break;
+	case SYS_EXEC:     f->eax =      exec ((const char *) VPOP(esp+1));  break;
+	case SYS_WAIT:     f->eax =      wait ((pid_t) VPOP(esp+1));  break;
+	case SYS_CREATE:   f->eax =    create ((const char *) VPOP(esp+1), (unsigned) VPOP(esp+2));  break;
+	case SYS_REMOVE:   f->eax =    remove ((const char *) VPOP(esp+1));  break;
+	case SYS_OPEN:     f->eax =      open ((const char *) VPOP(esp+1));  break;
+	case SYS_FILESIZE: f->eax =  filesize ((int) VPOP(esp+1));  break;
+	case SYS_READ:     f->eax =      read ((int) VPOP(esp+1), (void *) VPOP(esp+2), (unsigned) VPOP(esp+3));  break;
+	case SYS_WRITE:    f->eax =     write ((int) VPOP(esp+1), (const void *) VPOP(esp+2), (unsigned) VPOP(esp+3));  break;
+	case SYS_SEEK:     /*void*/      seek ((int) VPOP(esp+1), (unsigned) VPOP(esp+2));  break;
+	case SYS_TELL:     f->eax =      tell ((int) VPOP(esp+1));  break;
+	case SYS_CLOSE:    /*void*/     close ((int) VPOP(esp+1));  break;
 
   /* Project 3 and optionally project 4. */
-	case SYS_MMAP:     printf("SYS_MMAP\n");  break;
-	case SYS_MUNMAP:   printf("SYS_MUNMAP\n");  break;
+	case SYS_MMAP:     /*printf("SYS_MMAP\n");*/  break;
+	case SYS_MUNMAP:   /*printf("SYS_MUNMAP\n");*/  break;
 
   /* Project 4 only. */
 	case SYS_CHDIR:    printf("SYS_CHDIR\n");  break;
@@ -145,7 +150,7 @@ strlbond (char *dst, const char *src, size_t size){
 		memcpy (dst, s, MIN(PGSIZE-soffset, size-1));
 		doffset += MIN(PGSIZE-soffset, size-1);
 		dst[doffset] = '\0';
-		s = pg_round_down (src + PGSIZE);
+		s = (const char *) user_vtop ((const void *) src+doffset);
 	}
 
 	ASSERT (!str_over_boundary (s));
@@ -208,13 +213,15 @@ exit (int status)
 	struct file *f = cur->my_binary;
 
 	if (f!=NULL){
-		enum intr_level old_level = intr_disable ();
+		//enum intr_level old_level = intr_disable ();
+		lock_acquire (&filesys_lock);
 
 		if (f->deny_write)
 			file_allow_write (f);
 		file_close (f);
 
-		intr_set_level (old_level);
+		lock_release (&filesys_lock);
+		//intr_set_level (old_level);
 	}
 
 	cur->exit_status = status;
@@ -228,12 +235,14 @@ exec (const char *_cmd_line)
 {
 	if ((void *)_cmd_line >= PHYS_BASE)
 		exit (-1);
-	char *cmd_line = (char *) palloc_get_page (0);
+	//char *cmd_line = (char *) palloc_get_page (0);
+	char *cmd_line = (char *) malloc (4096);
 	if (cmd_line==NULL)
 		return -1;
 	strlbond (cmd_line, _cmd_line, (size_t)PGSIZE);
 	pid_t pid = (pid_t) process_execute (cmd_line);
-	palloc_free_page (cmd_line);
+	//palloc_free_page (cmd_line);
+	free (cmd_line);
 
 	return pid;
 }
@@ -352,7 +361,7 @@ read (int fd, void *_buffer, unsigned size)
 {
 	off_t offset = 0;
 
-	if ((void *)(_buffer+size-1) >= PHYS_BASE)
+	if ((void *)(_buffer) >= PHYS_BASE)
 		exit (-1);
 
 	char *buffer = (char *) user_vtop (_buffer);
@@ -360,32 +369,35 @@ read (int fd, void *_buffer, unsigned size)
 		exit (-1);
 	uintptr_t remain = (uintptr_t) pg_round_down(buffer+PGSIZE) - (uintptr_t) buffer;
 
-	lock_acquire (&filesys_lock);
 	if (fd == STDIN_FILENO)
 		{
 			while (size>0){
 				off_t st_offset = offset;
+				lock_acquire (&filesys_lock);
 				for (; size>0 && (pg_ofs(buffer+offset)!=0 || offset==st_offset);
 						offset++, size--) {
 					buffer[offset] = input_getc ();
 				}
+				lock_release (&filesys_lock);
 				if(size>0)
 					buffer = (char *) (user_vtop (_buffer+offset) - offset);
 			}
 		}
 	else
 		{
+			lock_acquire (&filesys_lock);
 			struct file *f = get_file_by_fd (fd);
+			lock_release (&filesys_lock);
 			if (f==NULL) {
-				lock_release (&filesys_lock);
 				return -1;
 			}
 
 			while (size>0) {
+				lock_acquire (&filesys_lock);
 				off_t read_now = file_read (f, buffer+offset, (off_t) MIN(size, remain));
+				lock_release (&filesys_lock);
 
 				if (read_now==0) {
-					lock_release (&filesys_lock);
 					return  (int) offset;
 				}
 
@@ -398,7 +410,8 @@ read (int fd, void *_buffer, unsigned size)
 				}
 			}
 		}
-	lock_release (&filesys_lock);
+	if ((void *)(_buffer+offset-1) >= PHYS_BASE)
+		exit (-1);
   return  (int) offset;
 }
 
@@ -408,7 +421,7 @@ write (int fd, const void *_buffer, unsigned size)
 {
 	off_t offset = 0;
 
-	if ((void *)(_buffer+size-1) >= PHYS_BASE)
+	if ((void *)(_buffer) >= PHYS_BASE)
 		exit (-1);
 
 	char *buffer = (char *) user_vtop (_buffer);
@@ -416,35 +429,39 @@ write (int fd, const void *_buffer, unsigned size)
 		exit (-1);
 	uintptr_t remain = (uintptr_t) pg_round_down(buffer+PGSIZE) - (uintptr_t) buffer;
 
-	lock_acquire (&filesys_lock);
 	if (fd == STDOUT_FILENO)
 		{
+			lock_acquire (&filesys_wlock);
 			while (size>0){
 				off_t st_offset = offset;
+				lock_acquire (&filesys_lock);
 				for (; size>0 && (pg_ofs(buffer+offset)!=0 || offset==st_offset);
 						offset++, size--) {
 					putbuf ((const char *)buffer+offset, (size_t)1);
 				}
+				lock_release (&filesys_lock);
 				if(size>0)
 					buffer = (char *) (user_vtop (_buffer+offset) - offset);
 			}
+			lock_release (&filesys_wlock);
 		}
 	else
 		{
+			lock_acquire (&filesys_lock);
 			struct file *f = get_file_by_fd (fd);
+			lock_release (&filesys_lock);
 			if (f==NULL) {
-				lock_release (&filesys_lock);
 				return -1;
 			} else if (f->deny_write) {
-				lock_release (&filesys_lock);
 				return 0;
 			}
 
 			while (size>0) {
+				lock_acquire (&filesys_lock);
 				off_t wrote_now = file_write (f, buffer+offset, (off_t) MIN(size, remain));
+				lock_release (&filesys_lock);
 
 				if (wrote_now==0) {
-					lock_release (&filesys_lock);
 					return  (int) offset;
 				}
 
@@ -457,7 +474,8 @@ write (int fd, const void *_buffer, unsigned size)
 				}
 			}
 		}
-	lock_release (&filesys_lock);
+	if ((void *)(_buffer+offset-1) >= PHYS_BASE)
+		exit (-1);
   return  (int) offset;
 }
 

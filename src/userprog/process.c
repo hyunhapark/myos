@@ -165,6 +165,7 @@ process_exit (void)
   struct thread *cur = thread_current ();
   uint32_t *pd;
 
+	lock_acquire (&filesys_lock);
 	struct list_elem *e;
 	for (e = list_begin (&cur->open_list); e != list_end (&cur->open_list);)
 		{
@@ -175,6 +176,11 @@ process_exit (void)
 			e = list_remove (&of->openelem);
 			free (of);
 		}
+	lock_release (&filesys_lock);
+
+#ifdef VM
+	hash_destroy (&cur->spt, page_destructor);
+#endif
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
@@ -546,6 +552,16 @@ setup_stack (void **esp, char *arg_start, int arg_len, int argc)
 		return false;
 
 	// TODO : page_alloc for 8MB sized Stack.
+	/* Mark valid to 2046 pages for stack. */
+#ifdef VM
+	int i;
+	for (i=1; i < STACK_PAGES; i++) {
+		if (!page_alloc (upage - (PGSIZE*i), NULL, 0, 0, PGSIZE,
+				true, SEGTYPE_STACK)) {
+			return false;
+		}
+	}
+#endif
 
 	/* Add the page to the process's address space. */
 	success = install_page (upage, kpage, true);

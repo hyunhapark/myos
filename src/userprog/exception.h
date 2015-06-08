@@ -11,5 +11,6 @@
 void exception_init (void);
 void exception_print_stats (void);
 bool install_page (void *upage, void *kpage, bool writable);
+bool demand_paging (const void *paging_addr, bool write);
 
 #endif /* userprog/exception.h */

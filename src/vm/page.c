@@ -58,3 +58,9 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_,
 	return a->vaddr < b->vaddr;
 }
 
+void
+page_destructor (struct hash_elem *a, void *aux UNUSED)
+{
+	free (hash_entry (a, struct spte, helem));
+}
+

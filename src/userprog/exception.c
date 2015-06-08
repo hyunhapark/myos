@@ -15,6 +15,8 @@
 /* Number of page faults processed. */
 static long long page_fault_cnt;
 
+extern struct lock filesys_lock;
+
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
 
@@ -130,11 +132,6 @@ page_fault (struct intr_frame *f)
   bool write;        /* True: access was write, false: access was read. */
   bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
-#ifdef VM
-	struct spte spte;
-	struct hash_elem *e;
-	struct spte *p;
-#endif
 
   /* Obtain faulting address, the virtual address that was
      accessed to cause the fault.  It may point to code or to
@@ -157,51 +154,8 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-	// TODO : frame_alloc if valid access. else exit(-1);
-  /* TODO : code sharing.
-		 block_sector_t sector_idx = byte_to_sector (inode, offset); */
 #ifdef VM
-	spte.vaddr = pg_round_down (fault_addr);
-	e = hash_find (&thread_current()->spt, &spte.helem);
-	if (e!=NULL) { /* Valid page */
-		p = hash_entry (e, struct spte, helem);
-		if (!p->writable && write) { /* But was write to non-writable page. */
-			exit (-1);
-			return;
-		} else {
-			void *fr=NULL;
-			switch (p->bpage.type) {
-			case BACKING_TYPE_FILE: 
-				fr = frame_alloc (p->vaddr);
-				file_seek (p->bpage.file, p->bpage.file_ofs);
-				if (file_read (p->bpage.file, fr, PGSIZE - p->bpage.zero_bytes) 
-						!= (off_t)(PGSIZE - p->bpage.zero_bytes)) {
-					frame_free (fr);
-					PANIC ("page_fault(): Read binary failed.");
-				}
-				memset (fr + (PGSIZE - p->bpage.zero_bytes), 0, p->bpage.zero_bytes);
-				break;
-			case BACKING_TYPE_SWAP:
-				//TODO
-				PANIC ("page_fault(): 'Swap in' not yet implemented.");
-				break;
-			case BACKING_TYPE_ZERO:
-				fr = frame_alloc(p->vaddr);
-				memset (fr, 0, PGSIZE);
-				break;
-			default: break;
-			}
-			if (fr == NULL) {
-				//TODO
-				PANIC ("page_fault(): frame_alloc returned NULL.");
-			}
-			/* Add the page to the process's address space. */
-			if (!install_page (p->vaddr, fr, p->writable)) 
-				{
-					frame_free (fr);
-					PANIC ("page_fault(): page install failed.");
-				}
-		}
+	if (demand_paging (fault_addr, write)) {
 		return;
 	}
 #endif
@@ -209,8 +163,7 @@ page_fault (struct intr_frame *f)
 #ifdef USERPROG
 	/* Check if it is fault of user process by system call. */
 	if (intr_syscall_context ()) {
-		exit (-1); /* Just kill the user process. */
-		return;
+		f->cs = SEL_UCSEG;
 	}
 #endif
 
@@ -236,3 +189,65 @@ install_page (void *upage, void *kpage, bool writable)
   return (pagedir_get_page (t->pagedir, upage) == NULL
           && pagedir_set_page (t->pagedir, upage, kpage, writable));
 }
+
+#ifdef VM
+bool
+demand_paging (const void *paging_addr, bool write)
+{
+	// Do frame_alloc if valid access. else return false;
+  /* TODO : code sharing.
+		 block_sector_t sector_idx = byte_to_sector (inode, offset); */
+	struct spte spte;
+	struct hash_elem *e;
+	struct spte *p;
+
+	spte.vaddr = pg_round_down (paging_addr);
+	e = hash_find (&thread_current()->spt, &spte.helem);
+	if (e!=NULL) { /* Valid page */
+		p = hash_entry (e, struct spte, helem);
+		if (p->writable || !write) { /* But was write to non-writable page. */
+			void *fr=NULL;
+			if (pagedir_get_page (thread_current ()->pagedir, p->vaddr) == NULL)
+				{
+					switch (p->bpage.type) {
+					case BACKING_TYPE_FILE: 
+						fr = frame_alloc (p->vaddr);
+						lock_acquire (&filesys_lock);
+						file_seek (p->bpage.file, p->bpage.file_ofs);
+						if (file_read (p->bpage.file, fr, PGSIZE - p->bpage.zero_bytes) 
+								!= (off_t)(PGSIZE - p->bpage.zero_bytes)) {
+							lock_release (&filesys_lock);
+							frame_free (fr);
+							PANIC ("page_fault(): Read binary failed.");
+						}
+						lock_release (&filesys_lock);
+						memset (fr + (PGSIZE - p->bpage.zero_bytes), 0, p->bpage.zero_bytes);
+						break;
+					case BACKING_TYPE_SWAP:
+						//TODO
+						PANIC ("page_fault(): 'Swap in' not yet implemented.");
+						break;
+					case BACKING_TYPE_ZERO:
+						fr = frame_alloc(p->vaddr);
+						memset (fr, 0, PGSIZE);
+							break;
+					default: break;
+					}
+					if (fr == NULL) {
+						//TODO
+						PANIC ("page_fault(): frame_alloc returned NULL.");
+					}
+					/* Add the page to the process's address space. */
+					if (!install_page (p->vaddr, fr, p->writable)) 
+						{
+							frame_free (fr);
+							PANIC ("page_fault(): page install failed.");
+						}
+				}
+			return true;  /* Valid access. */
+		}
+	}
+	return false;		/* Invalid access. Let Kernel to handle. */
+}
+#endif
+

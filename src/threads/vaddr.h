@@ -12,6 +12,10 @@
 #include "userprog/pagedir.h"
 #endif
 
+#ifdef VM
+#include "userprog/exception.h"
+#endif
+
 /* Functions and macros for working with virtual addresses.
 
    See pte.h for functions and macros specifically for x86
@@ -24,6 +28,8 @@
 #define PGBITS  12                         /* Number of offset bits. */
 #define PGSIZE  (1 << PGBITS)              /* Bytes in a page. */
 #define PGMASK  BITMASK(PGSHIFT, PGBITS)   /* Page offset bits (0:12). */
+#define STACK_PAGES  2046                  /* Stack size in pages. Total about 8MB.
+                                              2048 - 2. (2 is invalid padding) */
 
 /* Offset within a page. */
 static inline unsigned pg_ofs (const void *va) {
@@ -105,8 +111,16 @@ user_vtop (const void *vaddr)
 	uintptr_t offset = pg_ofs (vaddr);
 
 	const void *ppage = pagedir_get_page (t->pagedir, vpage);
-	if(ppage==NULL) 
-		return (uintptr_t)NULL;
+	if (ppage == NULL) {
+#ifdef VM
+		if (demand_paging (vpage, false))
+			ppage = pagedir_get_page (t->pagedir, vpage);
+		else
+			return (uintptr_t) NULL;
+#else
+		return (uintptr_t) NULL;
+#endif
+	}
 	return (uintptr_t) (ppage + offset);
 }
 #endif
