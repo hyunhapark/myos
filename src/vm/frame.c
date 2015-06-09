@@ -20,6 +20,8 @@
 /* A list of available frames. */
 //static struct list avail_frames;
 
+struct lock frame_lock;
+
 /* FT(Frame Table). Circular list of every preemtible frames. */
 static struct clist ft;
 
@@ -28,6 +30,7 @@ frame_init (void)
 {
 	//list_init (&avail_frames);
 	clist_init (&ft);
+	lock_init (&frame_lock);
 }
 
 static struct fte *
@@ -45,7 +48,7 @@ frame_get_victim (void)
 void *
 frame_alloc (void *vaddr)
 {
-	// TODO : lock??
+	lock_acquire (&frame_lock);
 	void *fr = palloc_get_page (PAL_USER);
 	if (fr == NULL) { /* Out of frame. */
 		enum intr_level old_level = intr_disable ();
@@ -121,10 +124,12 @@ frame_alloc (void *vaddr)
 
 	memset (fr, 0, PGSIZE);
 
+	lock_release (&frame_lock);
 	return fr;
 
 this_is_disaster:
 	palloc_free_page (fr);
+	lock_release (&frame_lock);
 	return NULL;
 }
 

@@ -8,7 +8,7 @@
 
 static struct lock st_lock;
 static struct lock swap_lock;
-static struct bitmap *st;
+static struct bitmap *st;   /* Swap Table */
 
 struct block *swap_dev;
 
