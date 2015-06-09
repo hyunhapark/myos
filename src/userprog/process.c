@@ -320,9 +320,9 @@ load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, i
 
 	t->my_binary = file;
 
-	if (!file->deny_write){
+	//if (!file->deny_write){
 		file_deny_write (file);
-	}
+	//}
 
   /* Read and verify executable header. */
   if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr

@@ -212,6 +212,7 @@ lock_acquire (struct lock *lock)
 
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
+	if (lock_held_by_current_thread (lock)) return;
   ASSERT (!lock_held_by_current_thread (lock));
 
 
@@ -286,6 +287,7 @@ lock_release (struct lock *lock)
 	struct list_elem *e;
 	struct thread *cur = thread_current ();
   ASSERT (lock != NULL);
+	if (!lock_held_by_current_thread (lock)) return;
   ASSERT (lock_held_by_current_thread (lock));
 
 	old_level = intr_disable ();

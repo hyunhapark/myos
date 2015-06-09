@@ -11,6 +11,7 @@
 #include "threads/vaddr.h"
 #include "vm/page.h"
 #include "vm/frame.h"
+#include "vm/swap.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -121,7 +122,7 @@ kill (struct intr_frame *f)
 
    At entry, the address that faulted is in CR2 (Control Register
    2) and information about the fault, formatted as described in
-   the PF_* macros in exception.h, is in F's error_code member.  The
+   the PGF_* macros in exception.h, is in F's error_code member.  The
    example code here shows how to parse that information.  You
    can find more information about both of these in the
    description of "Interrupt 14--Page Fault Exception (#PF)" in
@@ -129,9 +130,9 @@ kill (struct intr_frame *f)
 static void
 page_fault (struct intr_frame *f) 
 {
-  bool not_present;  /* True: not-present page, false: writing r/o page. */
+  //bool not_present;  /* True: not-present page, false: writing r/o page. */
   bool write;        /* True: access was write, false: access was read. */
-  bool user;         /* True: access by user, false: access by kernel. */
+  //bool user;         /* True: access by user, false: access by kernel. */
   void *fault_addr;  /* Fault address. */
 
   /* Obtain faulting address, the virtual address that was
@@ -151,9 +152,9 @@ page_fault (struct intr_frame *f)
   page_fault_cnt++;
 
   /* Determine cause. */
-  not_present = (f->error_code & PF_P) == 0;
-  write = (f->error_code & PF_W) != 0;
-  user = (f->error_code & PF_U) != 0;
+  //not_present = (f->error_code & PGF_P) == 0;
+  write = (f->error_code & PGF_W) != 0;
+  //user = (f->error_code & PGF_U) != 0;
 
 #ifdef VM
 	if (demand_paging (fault_addr, write)) {
@@ -168,7 +169,9 @@ page_fault (struct intr_frame *f)
 	}
 #endif
 
-  kill (f);
+	exit (-1);
+
+  //kill (f);
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

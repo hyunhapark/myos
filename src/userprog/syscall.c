@@ -213,15 +213,13 @@ exit (int status)
 	struct file *f = cur->my_binary;
 
 	if (f!=NULL){
-		//enum intr_level old_level = intr_disable ();
 		lock_acquire (&filesys_lock);
 
-		if (f->deny_write)
-			file_allow_write (f);
+		//if (f->deny_write)
+		//	file_allow_write (f);
 		file_close (f);
 
 		lock_release (&filesys_lock);
-		//intr_set_level (old_level);
 	}
 
 	cur->exit_status = status;
