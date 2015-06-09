@@ -169,9 +169,7 @@ page_fault (struct intr_frame *f)
 	}
 #endif
 
-	exit (-1);
-
-  //kill (f);
+  kill (f);
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

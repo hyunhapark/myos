@@ -146,11 +146,15 @@ strlbond (char *dst, const char *src, size_t size){
 	const char *s = (const char *) user_vtop ((const void *) src);
 	uintptr_t soffset = pg_ofs(src);
 	uintptr_t doffset = 0;
+	if (s==NULL)
+		exit (-1);
 	if (str_over_boundary (s)){
 		memcpy (dst, s, MIN(PGSIZE-soffset, size-1));
 		doffset += MIN(PGSIZE-soffset, size-1);
 		dst[doffset] = '\0';
 		s = (const char *) user_vtop ((const void *) src+doffset);
+		if (s==NULL)
+			exit (-1);
 	}
 
 	ASSERT (!str_over_boundary (s));
@@ -378,8 +382,12 @@ read (int fd, void *_buffer, unsigned size)
 					buffer[offset] = input_getc ();
 				}
 				lock_release (&filesys_lock);
-				if(size>0)
-					buffer = (char *) (user_vtop (_buffer+offset) - offset);
+				if(size>0) {
+					buffer = (char *) user_vtop (_buffer+offset);
+					if (buffer == NULL)
+						exit (-1);
+					buffer -= offset;
+				}
 			}
 		}
 	else
@@ -405,7 +413,10 @@ read (int fd, void *_buffer, unsigned size)
 				offset += (int) read_now;
 				size -= (unsigned) read_now;
 				if(size>0) {
-					buffer = (char *) (user_vtop (_buffer+offset) - offset);
+					buffer = (char *) user_vtop (_buffer+offset);
+					if (buffer == NULL)
+						exit (-1);
+					buffer -= offset;
 					remain = PGSIZE-pg_ofs(buffer+offset);
 					ASSERT (remain == PGSIZE);
 				}
@@ -442,8 +453,12 @@ write (int fd, const void *_buffer, unsigned size)
 					putbuf ((const char *)buffer+offset, (size_t)1);
 				}
 				lock_release (&filesys_lock);
-				if(size>0)
-					buffer = (char *) (user_vtop (_buffer+offset) - offset);
+				if(size>0) {
+					buffer = (char *) user_vtop (_buffer+offset);
+					if (buffer == NULL)
+						exit (-1);
+					buffer -= offset;
+				}
 			}
 		}
 	else
@@ -472,7 +487,10 @@ write (int fd, const void *_buffer, unsigned size)
 				offset += (int) wrote_now;
 				size -= (unsigned) wrote_now;
 				if(size>0) {
-					buffer = (char *) (user_vtop (_buffer+offset) - offset);
+					buffer = (char *) user_vtop (_buffer+offset);
+					if (buffer == NULL)
+						exit (-1);
+					buffer -= offset;
 					remain = PGSIZE-pg_ofs(buffer+offset);
 					ASSERT (remain == PGSIZE);
 				}
