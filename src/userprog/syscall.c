@@ -369,6 +369,7 @@ read (int fd, void *_buffer, unsigned size)
 		exit (-1);
 	uintptr_t remain = (uintptr_t) pg_round_down(buffer+PGSIZE) - (uintptr_t) buffer;
 
+	lock_acquire (&filesys_rlock);
 	if (fd == STDIN_FILENO)
 		{
 			while (size>0){
@@ -389,6 +390,7 @@ read (int fd, void *_buffer, unsigned size)
 			struct file *f = get_file_by_fd (fd);
 			lock_release (&filesys_lock);
 			if (f==NULL) {
+				lock_release (&filesys_rlock);
 				return -1;
 			}
 
@@ -398,6 +400,7 @@ read (int fd, void *_buffer, unsigned size)
 				lock_release (&filesys_lock);
 
 				if (read_now==0) {
+					lock_release (&filesys_rlock);
 					return  (int) offset;
 				}
 
@@ -410,6 +413,7 @@ read (int fd, void *_buffer, unsigned size)
 				}
 			}
 		}
+	lock_release (&filesys_rlock);
 	if ((void *)(_buffer+offset-1) >= PHYS_BASE)
 		exit (-1);
   return  (int) offset;
@@ -429,9 +433,9 @@ write (int fd, const void *_buffer, unsigned size)
 		exit (-1);
 	uintptr_t remain = (uintptr_t) pg_round_down(buffer+PGSIZE) - (uintptr_t) buffer;
 
+	lock_acquire (&filesys_wlock);
 	if (fd == STDOUT_FILENO)
 		{
-			lock_acquire (&filesys_wlock);
 			while (size>0){
 				off_t st_offset = offset;
 				lock_acquire (&filesys_lock);
@@ -443,7 +447,6 @@ write (int fd, const void *_buffer, unsigned size)
 				if(size>0)
 					buffer = (char *) (user_vtop (_buffer+offset) - offset);
 			}
-			lock_release (&filesys_wlock);
 		}
 	else
 		{
@@ -451,8 +454,10 @@ write (int fd, const void *_buffer, unsigned size)
 			struct file *f = get_file_by_fd (fd);
 			lock_release (&filesys_lock);
 			if (f==NULL) {
+				lock_release (&filesys_wlock);
 				return -1;
 			} else if (f->deny_write) {
+				lock_release (&filesys_wlock);
 				return 0;
 			}
 
@@ -462,6 +467,7 @@ write (int fd, const void *_buffer, unsigned size)
 				lock_release (&filesys_lock);
 
 				if (wrote_now==0) {
+					lock_release (&filesys_wlock);
 					return  (int) offset;
 				}
 
@@ -474,6 +480,7 @@ write (int fd, const void *_buffer, unsigned size)
 				}
 			}
 		}
+	lock_release (&filesys_wlock);
 	if ((void *)(_buffer+offset-1) >= PHYS_BASE)
 		exit (-1);
   return  (int) offset;

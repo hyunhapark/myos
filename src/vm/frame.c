@@ -10,6 +10,11 @@
 #include "vm/clock.h"
 #include "vm/wsclock.h"
 #include "threads/malloc.h"
+#include "threads/interrupt.h"
+#include "threads/synch.h"
+#include "vm/swap.h"
+#include "vm/page.h"
+#include "userprog/pagedir.h"
 #define automalloc(x)  ( (__typeof__(x)) malloc(sizeof *x) )
 
 /* A list of available frames. */
@@ -30,9 +35,9 @@ frame_get_victim (void)
 {
 	struct fte *ret = NULL;
 #ifdef WSCLOCK  /* WSclock algorithm. */
-	ret = wsclock_get_victim ();
+	ret = wsclock_get_victim (&ft);
 #else  /* For default, use clock algorithm. */
-	ret = clock_get_victim ();
+	ret = clock_get_victim (&ft);
 #endif
 	return ret;
 }
@@ -42,11 +47,59 @@ frame_alloc (void *vaddr)
 {
 	// TODO : lock??
 	void *fr = palloc_get_page (PAL_USER);
-	if (fr == NULL) { /* out of frame. */
+	if (fr == NULL) { /* Out of frame. */
+		enum intr_level old_level = intr_disable ();
 		struct fte *victim = frame_get_victim ();
-		//TODO : swap out.
-		PANIC ("frame_alloc(): Out of frame."); //XXX
-		//fr = ;
+		struct list *rl = &victim->reference_list;
+		struct list_elem *e;
+		block_sector_t swap = SWAP_NONE;
+		bool swapout = false;
+		for (e = list_begin (rl); e != list_end (rl);
+				 e = list_next (e))
+			{
+				struct fte_reference *re = 
+						list_entry (e, struct fte_reference, refelem);
+				struct spte search;
+				search.vaddr = re->vaddr;
+				struct hash_elem *he = hash_find (&re->process->spt, &search.helem);
+				ASSERT (he);
+				struct spte *spte = hash_entry (he, struct spte, helem);
+				if (spte->bpage.type == SEGTYPE_CODE
+						|| (spte->bpage.type == SEGTYPE_DATA 
+								&& pagedir_is_dirty (re->process->pagedir, re->vaddr)) ) {
+					/* Simply discard the page. */
+					pagedir_clear_page (re->process->pagedir, re->vaddr);
+				} else {
+					swapout = true;
+					pagedir_clear_page (re->process->pagedir, re->vaddr);
+				}
+			}
+		if (swapout) {
+			for (e = list_begin (rl); e != list_end (rl);
+					 e = list_next (e))
+				{
+					struct fte_reference *re = 
+							list_entry (e, struct fte_reference, refelem);
+					struct spte search;
+					search.vaddr = re->vaddr;
+					struct hash_elem *he = 
+							hash_find (&re->process->spt, &search.helem);
+					ASSERT (he);
+					struct spte *spte = hash_entry (he, struct spte, helem);
+					spte->bpage.type = BACKING_TYPE_SWAP;
+					if (swap == SWAP_NONE)
+						swap = swap_get_slot ();
+					spte->bpage.sector_idx = swap;
+					spte->bpage.zero_bytes = 0;
+				}
+		}
+		intr_set_level (old_level);
+		fr = victim->paddr;
+
+		/* Swap out. */
+		if (swapout) {
+			swap_store (swap, fr);
+		}
 	}
 
 	struct fte *fte = automalloc (fte);

@@ -23,6 +23,8 @@
 #include "vm/page.h"
 
 extern struct lock filesys_lock;
+extern struct lock filesys_wlock;
+extern struct lock filesys_rlock;
 
 static bool load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, int arg_len, int argc);
 
@@ -299,6 +301,7 @@ load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, i
   bool success = false;
   int i;
 
+	lock_acquire (&filesys_rlock);
 	lock_acquire (&filesys_lock);
 
   /* Allocate and activate page directory. */
@@ -404,6 +407,7 @@ load (const char *file_name, void (**eip) (void), void **esp, char *arg_start, i
 
  done:
 	lock_release (&filesys_lock);
+	lock_release (&filesys_rlock);
   /* We arrive here whether the load is successful or not. */
   return success;
 }

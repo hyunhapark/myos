@@ -11,9 +11,10 @@
 struct backing_page
   {
 		uint8_t type;                /* Backing type */
-#define BACKING_TYPE_FILE   0x01
-#define BACKING_TYPE_SWAP   0x02
-#define BACKING_TYPE_ZERO   0x03
+#define BACKING_TYPE_NONE   0x00 /* If there is no backing. */	
+#define BACKING_TYPE_FILE   0x01 /* If there is file copy. */
+#define BACKING_TYPE_SWAP   0x02 /* If it is swapped out. */
+#define BACKING_TYPE_ZERO   0x03 /* If it's just zero page. */
 		struct file *file;           /* File. */
 		off_t file_ofs;              /* Offset of file. */
 		block_sector_t sector_idx;   /* Index of starting sector of swap. */

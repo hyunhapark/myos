@@ -28,7 +28,7 @@
 /* Clist. */
 struct clist 
   {
-    struct list_elem *hand;      /* Hand of clist. */
+    struct list_elem *hand;         /* Hand of clist. */
 		size_t size;                    /* Size of clist. */
   };
 

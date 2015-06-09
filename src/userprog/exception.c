@@ -16,6 +16,7 @@
 static long long page_fault_cnt;
 
 extern struct lock filesys_lock;
+extern struct lock filesys_rlock;
 
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
@@ -197,35 +198,43 @@ demand_paging (const void *paging_addr, bool write)
 	// Do frame_alloc if valid access. else return false;
   /* TODO : code sharing.
 		 block_sector_t sector_idx = byte_to_sector (inode, offset); */
-	struct spte spte;
+	struct spte search;
 	struct hash_elem *e;
 	struct spte *p;
 
-	spte.vaddr = pg_round_down (paging_addr);
-	e = hash_find (&thread_current()->spt, &spte.helem);
+	search.vaddr = pg_round_down (paging_addr);
+	e = hash_find (&thread_current()->spt, &search.helem);
 	if (e!=NULL) { /* Valid page */
 		p = hash_entry (e, struct spte, helem);
 		if (p->writable || !write) { /* But was write to non-writable page. */
 			void *fr=NULL;
 			if (pagedir_get_page (thread_current ()->pagedir, p->vaddr) == NULL)
 				{
+					bool dirty = false;
 					switch (p->bpage.type) {
-					case BACKING_TYPE_FILE: 
+					case BACKING_TYPE_FILE: /* C, clean D, clean F */
 						fr = frame_alloc (p->vaddr);
+						lock_acquire (&filesys_rlock);
 						lock_acquire (&filesys_lock);
 						file_seek (p->bpage.file, p->bpage.file_ofs);
 						if (file_read (p->bpage.file, fr, PGSIZE - p->bpage.zero_bytes) 
 								!= (off_t)(PGSIZE - p->bpage.zero_bytes)) {
 							lock_release (&filesys_lock);
+							lock_release (&filesys_rlock);
 							frame_free (fr);
-							PANIC ("page_fault(): Read binary failed.");
+							return false;
+							//PANIC ("page_fault(): Read binary failed.");
 						}
 						lock_release (&filesys_lock);
-						memset (fr + (PGSIZE - p->bpage.zero_bytes), 0, p->bpage.zero_bytes);
+						lock_release (&filesys_rlock);
+						memset (fr + (PGSIZE - p->bpage.zero_bytes),
+								0, p->bpage.zero_bytes);
 						break;
-					case BACKING_TYPE_SWAP:
-						//TODO
-						PANIC ("page_fault(): 'Swap in' not yet implemented.");
+					case BACKING_TYPE_SWAP: /* dirty D, S, dirty F */
+						fr = frame_alloc (p->vaddr);
+						swap_load (p->bpage.sector_idx, fr);
+						swap_free_slot (p->bpage.sector_idx);
+						dirty = true;
 						break;
 					case BACKING_TYPE_ZERO:
 						fr = frame_alloc(p->vaddr);
@@ -233,16 +242,14 @@ demand_paging (const void *paging_addr, bool write)
 							break;
 					default: break;
 					}
-					if (fr == NULL) {
-						//TODO
-						PANIC ("page_fault(): frame_alloc returned NULL.");
-					}
+					ASSERT (fr);
 					/* Add the page to the process's address space. */
 					if (!install_page (p->vaddr, fr, p->writable)) 
 						{
 							frame_free (fr);
 							PANIC ("page_fault(): page install failed.");
 						}
+					pagedir_set_dirty (thread_current ()->pagedir, p->vaddr, dirty);
 				}
 			return true;  /* Valid access. */
 		}
