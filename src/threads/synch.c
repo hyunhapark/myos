@@ -212,9 +212,15 @@ lock_acquire (struct lock *lock)
 
   ASSERT (lock != NULL);
   ASSERT (!intr_context ());
-	if (lock_held_by_current_thread (lock)) return;
   ASSERT (!lock_held_by_current_thread (lock));
 
+#ifdef VM
+	old_level = intr_disable ();
+	sema_down (&lock->semaphore);
+  lock->holder = cur;
+	intr_set_level (old_level);
+	return;
+#endif
 
 	old_level = intr_disable ();
   if (!sema_try_down (&lock->semaphore)){
@@ -287,9 +293,15 @@ lock_release (struct lock *lock)
 	struct list_elem *e;
 	struct thread *cur = thread_current ();
   ASSERT (lock != NULL);
-	if (!lock_held_by_current_thread (lock)) return;
   ASSERT (lock_held_by_current_thread (lock));
 
+#ifdef VM
+	old_level = intr_disable ();
+  lock->holder = NULL;
+  sema_up (&lock->semaphore);
+	intr_set_level (old_level);
+	return;
+#endif
 	old_level = intr_disable ();
   lock->holder = NULL;
 

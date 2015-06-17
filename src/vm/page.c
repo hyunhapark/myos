@@ -22,6 +22,9 @@ page_alloc (uint8_t *upage, struct file *backing, off_t ofs,
 	ASSERT (pg_ofs (upage) == 0);
 
 	struct spte *spte = automalloc(spte);
+	if (spte==NULL){
+		return false;
+	}
 	spte->writable = writable;
 	spte->segtype = segtype;
 	spte->bpage.file = backing;
@@ -61,6 +64,8 @@ page_less (const struct hash_elem *a_, const struct hash_elem *b_,
 void
 page_destructor (struct hash_elem *a, void *aux UNUSED)
 {
-	free (hash_entry (a, struct spte, helem));
+	struct spte *spte = hash_entry (a, struct spte, helem);
+	if (spte)
+		free (spte);
 }
 

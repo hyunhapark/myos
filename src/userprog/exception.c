@@ -17,7 +17,6 @@
 static long long page_fault_cnt;
 
 extern struct lock filesys_lock;
-extern struct lock filesys_rlock;
 
 static void kill (struct intr_frame *);
 static void page_fault (struct intr_frame *);
@@ -203,11 +202,13 @@ demand_paging (const void *paging_addr, bool write)
 	struct hash_elem *e;
 	struct spte *p;
 
+	bool havelock = lock_held_by_current_thread (&filesys_lock);
+
 	search.vaddr = pg_round_down (paging_addr);
 	e = hash_find (&thread_current()->spt, &search.helem);
 	if (e!=NULL) { /* Valid page */
 		p = hash_entry (e, struct spte, helem);
-		if (p->writable || !write) { /* But was write to non-writable page. */
+		if (p->writable || !write) {
 			void *fr=NULL;
 			if (pagedir_get_page (thread_current ()->pagedir, p->vaddr) == NULL)
 				{
@@ -215,19 +216,19 @@ demand_paging (const void *paging_addr, bool write)
 					switch (p->bpage.type) {
 					case BACKING_TYPE_FILE: /* C, clean D, clean F */
 						fr = frame_alloc (p->vaddr);
-						lock_acquire (&filesys_rlock);
-						lock_acquire (&filesys_lock);
+						if (!havelock)
+							lock_acquire (&filesys_lock);
 						file_seek (p->bpage.file, p->bpage.file_ofs);
 						if (file_read (p->bpage.file, fr, PGSIZE - p->bpage.zero_bytes) 
 								!= (off_t)(PGSIZE - p->bpage.zero_bytes)) {
-							lock_release (&filesys_lock);
-							lock_release (&filesys_rlock);
+							if (!havelock)
+								lock_release (&filesys_lock);
 							frame_free (fr);
 							return false;
 							//PANIC ("page_fault(): Read binary failed.");
 						}
-						lock_release (&filesys_lock);
-						lock_release (&filesys_rlock);
+						if (!havelock)
+							lock_release (&filesys_lock);
 						memset (fr + (PGSIZE - p->bpage.zero_bytes),
 								0, p->bpage.zero_bytes);
 						break;

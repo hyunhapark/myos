@@ -65,7 +65,9 @@ frame_alloc (void *vaddr)
 				struct spte search;
 				search.vaddr = re->vaddr;
 				struct hash_elem *he = hash_find (&re->process->spt, &search.helem);
-				ASSERT (he);
+				if (!he)
+					continue;
+				//ASSERT (he);
 				struct spte *spte = hash_entry (he, struct spte, helem);
 				if (spte->bpage.type == SEGTYPE_CODE
 						|| (spte->bpage.type == SEGTYPE_DATA 
@@ -139,6 +141,7 @@ frame_free (void *fr)
 	struct list_elem *e;
 	struct fte *p;
 
+	lock_acquire (&frame_lock);
 	e = clist_hand(&ft);
 	if (e != NULL) {
 		p = clist_entry (e, struct fte, celem);
@@ -153,6 +156,7 @@ frame_free (void *fr)
 					goto do_frame_free;
 			}
 	}
+	lock_release (&frame_lock);
 	return;
 
 do_frame_free:
@@ -175,6 +179,7 @@ do_frame_free:
 		clist_remove (&ft, &p->celem);
 		free(p);
 	}
+	lock_release (&frame_lock);
 }
 
 void

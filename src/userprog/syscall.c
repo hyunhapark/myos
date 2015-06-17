@@ -219,8 +219,6 @@ exit (int status)
 	if (f!=NULL){
 		lock_acquire (&filesys_lock);
 
-		//if (f->deny_write)
-		//	file_allow_write (f);
 		file_close (f);
 
 		lock_release (&filesys_lock);
@@ -237,13 +235,11 @@ exec (const char *_cmd_line)
 {
 	if ((void *)_cmd_line >= PHYS_BASE)
 		exit (-1);
-	//char *cmd_line = (char *) palloc_get_page (0);
 	char *cmd_line = (char *) malloc (4096);
 	if (cmd_line==NULL)
 		return -1;
 	strlbond (cmd_line, _cmd_line, (size_t)PGSIZE);
 	pid_t pid = (pid_t) process_execute (cmd_line);
-	//palloc_free_page (cmd_line);
 	free (cmd_line);
 
 	return pid;
@@ -402,7 +398,8 @@ read (int fd, void *_buffer, unsigned size)
 
 			while (size>0) {
 				lock_acquire (&filesys_lock);
-				off_t read_now = file_read (f, buffer+offset, (off_t) MIN(size, remain));
+				//off_t read_now = file_read (f, buffer+offset, (off_t) MIN(size, remain));
+				off_t read_now = file_read (f, buffer+offset, (off_t) 1);
 				lock_release (&filesys_lock);
 
 				if (read_now==0) {
@@ -417,8 +414,8 @@ read (int fd, void *_buffer, unsigned size)
 					if (buffer == NULL)
 						exit (-1);
 					buffer -= offset;
-					remain = PGSIZE-pg_ofs(buffer+offset);
-					ASSERT (remain == PGSIZE);
+					//remain = PGSIZE-pg_ofs(buffer+offset);
+					//ASSERT (remain == PGSIZE);
 				}
 			}
 		}
@@ -476,7 +473,8 @@ write (int fd, const void *_buffer, unsigned size)
 
 			while (size>0) {
 				lock_acquire (&filesys_lock);
-				off_t wrote_now = file_write (f, buffer+offset, (off_t) MIN(size, remain));
+				off_t wrote_now = file_write (f, buffer+offset, (off_t) 1);
+				//off_t wrote_now = file_write (f, buffer+offset, (off_t) MIN(size, remain));
 				lock_release (&filesys_lock);
 
 				if (wrote_now==0) {
@@ -491,8 +489,8 @@ write (int fd, const void *_buffer, unsigned size)
 					if (buffer == NULL)
 						exit (-1);
 					buffer -= offset;
-					remain = PGSIZE-pg_ofs(buffer+offset);
-					ASSERT (remain == PGSIZE);
+					//remain = PGSIZE-pg_ofs(buffer+offset);
+					//ASSERT (remain == PGSIZE);
 				}
 			}
 		}
